@@ -99,6 +99,10 @@ let TOKEN=localStorage.getItem('momo_tok')||'';
 let ADMIN=localStorage.getItem('momo_admin')||'';
 let ME=JSON.parse(localStorage.getItem('momo_me')||'null');
 
+// Demo admin credentials pre-filled on the Admin tab (must match the server's
+// ADMIN_USERNAME / ADMIN_PASSWORD). Demo convenience only — remove the pre-fill
+// for a real deployment.
+const DEMO_ADMIN={u:'admin',p:'MomoRail2026!'};
 const state={cc:'UG',view:'wallet',markets:[],wallet:null,activity:[],admin:[]};
 async function api(path,opts){opts=opts||{};const headers=Object.assign({},opts.headers);
   if(TOKEN&&!headers.Authorization)headers.Authorization='Bearer '+TOKEN;
@@ -162,9 +166,9 @@ function renderOps(){
 async function renderAdmin(){
   if(!ADMIN){
     view.innerHTML=`<div class="panel" style="max-width:420px"><h3>Ops console — admin sign-in</h3>
-      <div class="small muted">Set ADMIN_USERNAME / ADMIN_PASSWORD on the server to enable.</div>
-      <label>Username</label><input id="au" placeholder="admin">
-      <label>Password</label><input id="ap" type="password" placeholder="••••••••">
+      <div class="small muted">Demo credentials are pre-filled — just click Sign in. (The server must have the same ADMIN_USERNAME / ADMIN_PASSWORD set.)</div>
+      <label>Username</label><input id="au" value="${DEMO_ADMIN.u}">
+      <label>Password</label><input id="ap" type="password" value="${DEMO_ADMIN.p}">
       <div id="err"></div><button class="btn" id="go">Sign in</button></div>`;
     document.getElementById('go').onclick=async e=>{try{
       const r=await POST('/api/admin/login',{username:document.getElementById('au').value,password:document.getElementById('ap').value});
