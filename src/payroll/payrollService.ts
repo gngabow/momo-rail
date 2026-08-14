@@ -1,7 +1,7 @@
 import { newId } from '../util/id';
 import { CountryRegistry } from '../config/countryProfile';
 import { ProviderRegistry } from '../providers/registry';
-import { Ledger } from '../ledger/ledger';
+import { LedgerStore } from '../ledger/store';
 import { provisionWallet } from '../wallet/walletService';
 import { toMsisdn } from '../context/phone';
 import { RailError } from '../rail/railService';
@@ -36,7 +36,7 @@ export interface PayrollBatchResult {
  */
 export class PayrollService {
   constructor(
-    private readonly ledger: Ledger,
+    private readonly ledger: LedgerStore,
     private readonly registry: CountryRegistry,
     private readonly providers: ProviderRegistry,
   ) {}
@@ -45,7 +45,7 @@ export class PayrollService {
     const profile = this.registry.require(countryCode);
     if (!profile.features.payroll) throw new RailError(`Payroll is not enabled for ${countryCode}`);
     const provider = this.providers.resolve(profile);
-    const employerWallet = provisionWallet(this.ledger, p.employerCustomerId, profile.localCurrency, profile.code);
+    const employerWallet = await provisionWallet(this.ledger, p.employerCustomerId, profile.localCurrency, profile.code);
 
     const items: PayrollItemResult[] = [];
     let paid = 0, failed = 0;
@@ -53,7 +53,7 @@ export class PayrollService {
     for (const payee of p.payees) {
       // Guard funds per item so a shortfall stops that payee, not the batch.
       try {
-        this.ledger.assertSufficientBalance(employerWallet.id, payee.amountLocal);
+        await this.ledger.assertSufficientBalance(employerWallet.id, payee.amountLocal);
       } catch {
         items.push({ ...payee, status: 'failed', reason: 'Insufficient employer balance' });
         failed++;
@@ -63,7 +63,7 @@ export class PayrollService {
       const reference = newId();
       const res = await provider.disburse({ msisdn, amount: payee.amountLocal, currency: profile.localCurrency, reference });
       if (res.status === 'success') {
-        this.ledger.postEntry({
+        await this.ledger.postEntry({
           entryType: 'payroll_disburse',
           idempotencyKey: `pay-${reference}`,
           lines: [

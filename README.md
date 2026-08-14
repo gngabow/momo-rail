@@ -118,6 +118,43 @@ secrets, no MoMo credentials needed for the demo.
 
 Free tier sleeps after ~15 min idle (first hit wakes it in a few seconds).
 
+## Persistence (Postgres)
+
+Storage is chosen at boot by one env var:
+
+- **No `DATABASE_URL`** → in-memory `Ledger` (the dependency-free demo; state
+  resets on restart). This is the default and needs no database.
+- **`DATABASE_URL` set** → `PgLedger` (Postgres). State survives restarts. The
+  `pg` driver is loaded lazily, so the in-memory path never needs it.
+
+Both implement the same async `LedgerStore` interface (`src/ledger/store.ts`),
+so every service above the ledger is byte-identical on either path. `/health`
+reports which is active (`"store":"memory"` or `"postgres"`). Balances are
+always the exact SUM of an account's journal lines — never a cached figure that
+can drift. Migrations (`migrations/*.sql`) run automatically on boot and are
+idempotent.
+
+### Turning it on
+
+1. Create a Postgres instance (Render → **New → Postgres**, free plan is fine).
+2. Copy its **Internal Database URL** and set it as `DATABASE_URL` on the
+   `momo-rail` service (Render → Environment). Restart.
+3. Prove it end to end — including survival across a restart:
+
+   ```bash
+   DATABASE_URL=postgres://… npm run db:selftest
+   ```
+
+   It moves money on one connection, opens a second connection (a simulated
+   restart), and confirms the balances are still there.
+
+> **Scope note.** The ledger (accounts, journal, balances) and customer wallets
+> are fully persisted. In-flight *pending settlements* (a MoMo call awaiting its
+> callback) are still tracked in memory this phase — the money is safely parked
+> in the durable ledger's suspense account, but the pending→reference mapping is
+> lost on a restart mid-flight (recoverable via the status-poll endpoint).
+> Persisting that map is a small follow-up.
+
 ## Going live on real MTN MoMo (sandbox)
 
 The demo runs on the mock adapter with **no env at all**. Flipping a market onto

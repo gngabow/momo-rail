@@ -37,15 +37,16 @@ async function main() {
   console.log('ledger');
   {
     const l = new Ledger();
-    const a = l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
-    const b = l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
-    l.postEntry({ entryType: 't', lines: [{ accountId: a.id, amount: '-500.00' }, { accountId: b.id, amount: '500.00' }] });
-    ok('balanced entry moves value', l.getBalance(b.id).balance === '500.00' && l.getBalance(a.id).balance === '-500.00');
+    const a = await l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
+    const b = await l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
+    await l.postEntry({ entryType: 't', lines: [{ accountId: a.id, amount: '-500.00' }, { accountId: b.id, amount: '500.00' }] });
+    ok('balanced entry moves value', (await l.getBalance(b.id)).balance === '500.00' && (await l.getBalance(a.id)).balance === '-500.00');
     await throws('unbalanced rejected', () => l.postEntry({ entryType: 'x', lines: [{ accountId: a.id, amount: '-1.00' }, { accountId: b.id, amount: '0.99' }] }), UnbalancedEntryError);
-    const e1 = l.postEntry({ entryType: 't', idempotencyKey: 'k', lines: [{ accountId: a.id, amount: '-100.00' }, { accountId: b.id, amount: '100.00' }] });
-    const e2 = l.postEntry({ entryType: 't', idempotencyKey: 'k', lines: [{ accountId: a.id, amount: '-100.00' }, { accountId: b.id, amount: '100.00' }] });
-    ok('idempotent apply-once', e1.id === e2.id && l.getBalance(b.id).balance === '600.00');
-    await throws('insufficient guard', () => l.assertSufficientBalance(l.createAccount({ customerId: 'z', currency: 'KES', accountType: 'customer_wallet' }).id, '1.00'), InsufficientBalanceError);
+    const e1 = await l.postEntry({ entryType: 't', idempotencyKey: 'k', lines: [{ accountId: a.id, amount: '-100.00' }, { accountId: b.id, amount: '100.00' }] });
+    const e2 = await l.postEntry({ entryType: 't', idempotencyKey: 'k', lines: [{ accountId: a.id, amount: '-100.00' }, { accountId: b.id, amount: '100.00' }] });
+    ok('idempotent apply-once', e1.id === e2.id && (await l.getBalance(b.id)).balance === '600.00');
+    const z = await l.createAccount({ customerId: 'z', currency: 'KES', accountType: 'customer_wallet' });
+    await throws('insufficient guard', () => l.assertSufficientBalance(z.id, '1.00'), InsufficientBalanceError);
   }
 
   console.log('exchange');
@@ -67,30 +68,30 @@ async function main() {
     { country: 'UG', national: '772123456', currency: 'UGX', deposit: '400000', convert: '380000', zero: '0' },
     { country: 'KE', national: '712345678', currency: 'KES', deposit: '20000', convert: '12900', zero: '0.00' },
   ] as const) {
-    const { ledger, registry } = bootstrap();
+    const { ledger, registry } = await bootstrap();
     const rail = new RailService(ledger, registry, new ProviderRegistry(), new FixedFxRateProvider());
     const dep = await rail.deposit(m.country, { customerId: 'c1', national: m.national, amountLocal: m.deposit });
     ok(`${m.country} deposit completes`, dep.status === 'completed');
     const cvt = await rail.convert(m.country, { customerId: 'c1', direction: 'local_to_usdt', amount: m.convert });
-    ok(`${m.country} convert -> 98.5 USDT`, cvt.quote.net === '98.500000' && ledger.getBalance(cvt.usdtWalletId).balance === '98.500000');
-    const remaining = ledger.getBalance(ledger.findCustomerWallet('c1', m.currency)!.id).balance;
+    ok(`${m.country} convert -> 98.5 USDT`, cvt.quote.net === '98.500000' && (await ledger.getBalance(cvt.usdtWalletId)).balance === '98.500000');
+    const remaining = (await ledger.getBalance((await ledger.findCustomerWallet('c1', m.currency))!.id)).balance;
     const wd = await rail.withdraw(m.country, { customerId: 'c1', national: m.national, amountLocal: remaining });
-    ok(`${m.country} withdraw completes and zeroes wallet`, wd.status === 'completed' && ledger.getBalance(ledger.findCustomerWallet('c1', m.currency)!.id).balance === m.zero);
+    ok(`${m.country} withdraw completes and zeroes wallet`, wd.status === 'completed' && (await ledger.getBalance((await ledger.findCustomerWallet('c1', m.currency))!.id)).balance === m.zero);
   }
 
   console.log('guards');
   {
-    const { ledger, registry } = bootstrap();
+    const { ledger, registry } = await bootstrap();
     const rail = new RailService(ledger, registry, new ProviderRegistry(), new FixedFxRateProvider());
     const dep = await rail.deposit('KE', { customerId: 'c9', national: '712340000', amountLocal: '5000' });
-    ok('declined prompt -> no balance', dep.status === 'failed' && ledger.getBalance(ledger.findCustomerWallet('c9', 'KES')!.id).balance === '0.00');
+    ok('declined prompt -> no balance', dep.status === 'failed' && (await ledger.getBalance((await ledger.findCustomerWallet('c9', 'KES'))!.id)).balance === '0.00');
     await throws('sanctions hit blocks', () => rail.deposit('UG', { customerId: 'c1', national: '772123456', amountLocal: '100000', sanctionsHit: true }), RailError);
     await throws('unknown country rejected', () => rail.deposit('ZZ', { customerId: 'c1', national: '700000000', amountLocal: '1000' }));
   }
 
   console.log('payroll (MoMo Disbursements)');
   {
-    const { ledger, registry } = bootstrap();
+    const { ledger, registry } = await bootstrap();
     const providers = new ProviderRegistry();
     const rail = new RailService(ledger, registry, providers, new FixedFxRateProvider());
     const payroll = new PayrollService(ledger, registry, providers);
@@ -100,12 +101,12 @@ async function main() {
       { national: '772222222', amountLocal: '50000', label: 'John' }, // only 20000 left -> fails
     ]});
     ok('payroll pays until funds run out', res.paid === 1 && res.failed === 1);
-    ok('employer debited only for the paid worker', ledger.getBalance(ledger.findCustomerWallet('emp', 'UGX')!.id).balance === '20000');
+    ok('employer debited only for the paid worker', (await ledger.getBalance((await ledger.findCustomerWallet('emp', 'UGX'))!.id)).balance === '20000');
   }
 
   console.log('multi-currency (every configured MoMo market, one code path)');
   {
-    const { ledger, registry } = bootstrap();
+    const { ledger, registry } = await bootstrap();
     const rail = new RailService(ledger, registry, new ProviderRegistry(), new FixedFxRateProvider());
     const markets = registry.list();
     const currencies = new Set<string>();
@@ -116,7 +117,7 @@ async function main() {
       const conv = s0 ? '500000' : '50000.00';
       await rail.deposit(p.code, { customerId: `c-${p.code}`, national: '700000001', amountLocal: dep });
       const cvt = await rail.convert(p.code, { customerId: `c-${p.code}`, direction: 'local_to_usdt', amount: conv });
-      if (Number(ledger.getBalance(cvt.usdtWalletId).balance) > 0) { ran++; currencies.add(p.localCurrency); }
+      if (Number((await ledger.getBalance(cvt.usdtWalletId)).balance) > 0) { ran++; currencies.add(p.localCurrency); }
     }
     console.log(`      markets=${markets.length} currencies=${currencies.size} [${[...currencies].join(', ')}]`);
     ok(`ran all ${markets.length} MoMo markets on one code path`, ran === markets.length && markets.length >= 15);

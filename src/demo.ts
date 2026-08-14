@@ -5,7 +5,7 @@ import { RailService } from './rail/railService';
 
 /** Runnable proof: the same code path serves two markets on two currencies. */
 async function main() {
-  const { ledger, registry } = bootstrap();
+  const { ledger, registry } = await bootstrap();
   const rail = new RailService(ledger, registry, new ProviderRegistry(), new FixedFxRateProvider());
 
   const all = registry.list();
@@ -34,8 +34,8 @@ async function main() {
     const wd = await rail.withdraw(s.country, { customerId, national: s.national, amountLocal: back.quote.net });
     console.log(`withdraw ${back.quote.net} ${profile.localCurrency} -> ${wd.status}`);
 
-    const local = ledger.getBalance(cvt.localWalletId);
-    const usdt = ledger.getBalance(cvt.usdtWalletId);
+    const local = await ledger.getBalance(cvt.localWalletId);
+    const usdt = await ledger.getBalance(cvt.usdtWalletId);
     console.log(`balances: ${local.balance} ${local.currency} · ${usdt.balance} USDT`);
   }
 }

@@ -27,14 +27,18 @@ CREATE TABLE IF NOT EXISTS country_profiles (
   updated_at                 timestamptz NOT NULL DEFAULT now()
 );
 
--- Currency-agnostic accounts. country_code is NULL for shared/cross-market
--- system accounts (e.g. the USDT hot wallet).
+-- Currency-agnostic accounts. IDs are application-supplied text: semantic for
+-- system accounts ('sys-USDT-hot', 'sys-UGX-float', 'sys-UGX-suspense') and
+-- UUIDs for customer wallets. customer_id is likewise app-defined text.
+-- country_code is NULL for shared/cross-market system accounts (e.g. USDT hot
+-- wallet). No FK to country_profiles so account creation never depends on
+-- profile-seed ordering.
 CREATE TABLE IF NOT EXISTS accounts (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer_id   uuid NULL,
+  id            text PRIMARY KEY,
+  customer_id   text NULL,
   currency      text NOT NULL,
   account_type  text NOT NULL,
-  country_code  text NULL REFERENCES country_profiles(code),
+  country_code  text NULL,
   status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active','frozen')),
   created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -45,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_accounts_country ON accounts (country_code);
 -- Double-entry journal. Every entry balances to zero per currency (enforced in
 -- app code). Amounts stored as integer minor units for exactness.
 CREATE TABLE IF NOT EXISTS journal_entries (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id               text PRIMARY KEY,
   entry_type       text NOT NULL,
   idempotency_key  text NULL UNIQUE,
   created_at       timestamptz NOT NULL DEFAULT now()
@@ -53,8 +57,8 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 
 CREATE TABLE IF NOT EXISTS journal_lines (
   id            bigserial PRIMARY KEY,
-  entry_id      uuid NOT NULL REFERENCES journal_entries(id),
-  account_id    uuid NOT NULL REFERENCES accounts(id),
+  entry_id      text NOT NULL REFERENCES journal_entries(id),
+  account_id    text NOT NULL REFERENCES accounts(id),
   currency      text NOT NULL,
   amount_minor  bigint NOT NULL   -- signed; per-currency sum across an entry must be 0
 );

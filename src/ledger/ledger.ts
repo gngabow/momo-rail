@@ -1,12 +1,16 @@
 import { newId } from '../util/id';
 import { toMinor, fromMinor } from './money';
+import { LedgerStore } from './store';
 
 /**
  * Currency-agnostic double-entry ledger. Currency is just a field on an
  * account — the same engine holds KES, UGX, GHS, USDT side by side. Every
- * journal entry must balance to zero *per currency*. In-memory here (the
- * greenfield scaffold); a Postgres-backed implementation of the same
- * interface is the production step (see migrations/ for the schema).
+ * journal entry must balance to zero *per currency*.
+ *
+ * This is the in-memory `LedgerStore` (the default, dependency-free path). The
+ * Postgres-backed `PgLedger` (src/ledger/pgLedger.ts) implements the same async
+ * interface over the tables in migrations/. Methods are async to share one
+ * interface with Postgres; the in-memory work itself is synchronous.
  */
 
 export type AccountType =
@@ -52,19 +56,19 @@ export class InsufficientBalanceError extends LedgerError {
   }
 }
 
-export class Ledger {
+export class Ledger implements LedgerStore {
   private accounts = new Map<string, Account>();
   private balances = new Map<string, bigint>(); // accountId -> minor units
   private entries: JournalEntry[] = [];
   private idempotency = new Map<string, JournalEntry>();
 
-  createAccount(params: {
+  async createAccount(params: {
     customerId?: string | null;
     currency: string;
     accountType: AccountType;
     countryCode?: string | null;
     id?: string;
-  }): Account {
+  }): Promise<Account> {
     const acct: Account = {
       id: params.id ?? newId(),
       customerId: params.customerId ?? null,
@@ -79,35 +83,39 @@ export class Ledger {
     return acct;
   }
 
-  getAccount(id: string): Account {
+  private requireAccount(id: string): Account {
     const a = this.accounts.get(id);
     if (!a) throw new AccountNotFoundError(id);
     return a;
   }
 
+  async getAccount(id: string): Promise<Account> {
+    return this.requireAccount(id);
+  }
+
   /** Find a customer's wallet for a currency (idempotent provisioning helper). */
-  findCustomerWallet(customerId: string, currency: string): Account | undefined {
+  async findCustomerWallet(customerId: string, currency: string): Promise<Account | undefined> {
     for (const a of this.accounts.values()) {
       if (a.customerId === customerId && a.currency === currency && a.accountType === 'customer_wallet') return a;
     }
     return undefined;
   }
 
-  getBalance(accountId: string): { currency: string; balance: string; minor: bigint } {
-    const a = this.getAccount(accountId);
+  async getBalance(accountId: string): Promise<{ currency: string; balance: string; minor: bigint }> {
+    const a = await this.getAccount(accountId);
     const minor = this.balances.get(accountId) ?? 0n;
     return { currency: a.currency, balance: fromMinor(minor, a.currency), minor };
   }
 
-  assertSufficientBalance(accountId: string, amount: string): void {
-    const a = this.getAccount(accountId);
+  async assertSufficientBalance(accountId: string, amount: string): Promise<void> {
+    const a = await this.getAccount(accountId);
     const have = this.balances.get(accountId) ?? 0n;
     const need = toMinor(amount, a.currency);
     if (have < need) throw new InsufficientBalanceError(accountId, amount, fromMinor(have, a.currency));
   }
 
   /** Post a balanced multi-currency journal entry. Idempotent on idempotencyKey. */
-  postEntry(params: { entryType: string; idempotencyKey?: string; lines: JournalLine[] }): JournalEntry {
+  async postEntry(params: { entryType: string; idempotencyKey?: string; lines: JournalLine[] }): Promise<JournalEntry> {
     if (params.idempotencyKey) {
       const prior = this.idempotency.get(params.idempotencyKey);
       if (prior) return prior;
@@ -115,7 +123,7 @@ export class Ledger {
     // Resolve each line's currency from its account and sum per currency.
     const perCurrency = new Map<string, bigint>();
     const resolved = params.lines.map((l) => {
-      const acct = this.getAccount(l.accountId);
+      const acct = this.requireAccount(l.accountId);
       const minor = toMinor(l.amount, acct.currency);
       perCurrency.set(acct.currency, (perCurrency.get(acct.currency) ?? 0n) + minor);
       return { accountId: l.accountId, amount: l.amount, currency: acct.currency, minor };
@@ -139,7 +147,7 @@ export class Ledger {
     return entry;
   }
 
-  listEntries(): JournalEntry[] {
+  async listEntries(): Promise<JournalEntry[]> {
     return [...this.entries];
   }
 }

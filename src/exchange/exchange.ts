@@ -1,6 +1,6 @@
 import { CountryProfile } from '../config/countryProfile';
 import { FxRateProvider } from '../fx/fxRateProvider';
-import { Ledger } from '../ledger/ledger';
+import { LedgerStore } from '../ledger/store';
 import { fromMinor, roundTo, toMinor } from '../ledger/money';
 
 /**
@@ -72,7 +72,7 @@ export async function createQuote(
 }
 
 export function executeConversion(
-  ledger: Ledger,
+  ledger: LedgerStore,
   profile: CountryProfile,
   quote: ConversionQuote,
   accounts: ConversionAccounts,

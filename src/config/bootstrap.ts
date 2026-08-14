@@ -1,4 +1,5 @@
 import { Ledger } from '../ledger/ledger';
+import { LedgerStore } from '../ledger/store';
 import { CountryProfile, CountryRegistry, seedProfiles } from './countryProfile';
 import { liveMarkets, providerEnvName } from '../providers/momoEnv';
 
@@ -8,8 +9,9 @@ import { liveMarkets, providerEnvName } from '../providers/momoEnv';
  * a CountryProfile can reference them by config (production bakes real seeded
  * IDs the same way).
  */
-export function bootstrap(): { ledger: Ledger; registry: CountryRegistry; profiles: CountryProfile[] } {
-  const ledger = new Ledger();
+export async function bootstrap(ledgerImpl?: LedgerStore): Promise<{ ledger: LedgerStore; registry: CountryRegistry; profiles: CountryProfile[] }> {
+  const ledger: LedgerStore = ledgerImpl ?? new Ledger();
+  if (ledger.init) await ledger.init();
   const registry = new CountryRegistry();
   const profiles = seedProfiles();
   const created = new Set<string>();
@@ -18,9 +20,11 @@ export function bootstrap(): { ledger: Ledger; registry: CountryRegistry; profil
   const live = liveMarkets();
   const envName = providerEnvName();
 
-  const ensure = (id: string, currency: string, accountType: Parameters<Ledger['createAccount']>[0]['accountType'], countryCode: string | null) => {
+  const ensure = async (id: string, currency: string, accountType: Parameters<LedgerStore['createAccount']>[0]['accountType'], countryCode: string | null) => {
     if (created.has(id)) return;
-    ledger.createAccount({ id, currency, accountType, countryCode });
+    // Idempotent across restarts: a durable store may already hold this account.
+    try { await ledger.getAccount(id); created.add(id); return; } catch { /* not present — create it */ }
+    await ledger.createAccount({ id, currency, accountType, countryCode });
     created.add(id);
   };
 
@@ -30,11 +34,11 @@ export function bootstrap(): { ledger: Ledger; registry: CountryRegistry; profil
       p.providerEnv = envName;
       p.licensing = { ...p.licensing, note: `Live on MTN ${envName} adapter` };
     }
-    ensure(p.ledgerAccounts.usdtHotWalletId, 'USDT', 'system_usdt_hot_wallet', null);
-    ensure(p.ledgerAccounts.usdtFeeRevenueId, 'USDT', 'system_fee_revenue', null);
-    ensure(p.ledgerAccounts.localFloatId, p.localCurrency, 'system_local_float', p.code);
-    ensure(p.ledgerAccounts.localFeeRevenueId, p.localCurrency, 'system_fee_revenue', p.code);
-    ensure(`sys-${p.localCurrency}-suspense`, p.localCurrency, 'system_suspense', p.code);
+    await ensure(p.ledgerAccounts.usdtHotWalletId, 'USDT', 'system_usdt_hot_wallet', null);
+    await ensure(p.ledgerAccounts.usdtFeeRevenueId, 'USDT', 'system_fee_revenue', null);
+    await ensure(p.ledgerAccounts.localFloatId, p.localCurrency, 'system_local_float', p.code);
+    await ensure(p.ledgerAccounts.localFeeRevenueId, p.localCurrency, 'system_fee_revenue', p.code);
+    await ensure(`sys-${p.localCurrency}-suspense`, p.localCurrency, 'system_suspense', p.code);
     registry.upsert(p);
   }
 

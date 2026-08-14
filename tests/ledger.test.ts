@@ -1,60 +1,60 @@
 import { Ledger, UnbalancedEntryError, InsufficientBalanceError } from '../src/ledger/ledger';
 
 describe('double-entry ledger', () => {
-  test('a balanced entry moves value and balances to zero per currency', () => {
+  test('a balanced entry moves value and balances to zero per currency', async () => {
     const l = new Ledger();
-    const a = l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
-    const b = l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
-    l.postEntry({ entryType: 'test', lines: [
+    const a = await l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
+    const b = await l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
+    await l.postEntry({ entryType: 'test', lines: [
       { accountId: a.id, amount: '-500.00' },
       { accountId: b.id, amount: '500.00' },
     ]});
-    expect(l.getBalance(b.id).balance).toBe('500.00');
-    expect(l.getBalance(a.id).balance).toBe('-500.00');
+    expect((await l.getBalance(b.id)).balance).toBe('500.00');
+    expect((await l.getBalance(a.id)).balance).toBe('-500.00');
   });
 
-  test('an unbalanced entry is rejected', () => {
+  test('an unbalanced entry is rejected', async () => {
     const l = new Ledger();
-    const a = l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
-    const b = l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
-    expect(() => l.postEntry({ entryType: 'bad', lines: [
+    const a = await l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
+    const b = await l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
+    await expect(l.postEntry({ entryType: 'bad', lines: [
       { accountId: a.id, amount: '-500.00' },
       { accountId: b.id, amount: '499.99' },
-    ]})).toThrow(UnbalancedEntryError);
+    ]})).rejects.toThrow(UnbalancedEntryError);
   });
 
-  test('multi-currency entry balances each currency independently', () => {
+  test('multi-currency entry balances each currency independently', async () => {
     const l = new Ledger();
-    const kesA = l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
-    const kesB = l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
-    const usdtA = l.createAccount({ currency: 'USDT', accountType: 'system_usdt_hot_wallet' });
-    const usdtB = l.createAccount({ customerId: 'c1', currency: 'USDT', accountType: 'customer_wallet' });
-    l.postEntry({ entryType: 'convert', lines: [
+    const kesA = await l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
+    const kesB = await l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
+    const usdtA = await l.createAccount({ currency: 'USDT', accountType: 'system_usdt_hot_wallet' });
+    const usdtB = await l.createAccount({ customerId: 'c1', currency: 'USDT', accountType: 'customer_wallet' });
+    await l.postEntry({ entryType: 'convert', lines: [
       { accountId: kesA.id, amount: '-12900.00' },
       { accountId: kesB.id, amount: '12900.00' },
       { accountId: usdtA.id, amount: '-100.000000' },
       { accountId: usdtB.id, amount: '100.000000' },
     ]});
-    expect(l.getBalance(usdtB.id).balance).toBe('100.000000');
+    expect((await l.getBalance(usdtB.id)).balance).toBe('100.000000');
   });
 
-  test('idempotency: same key applies once', () => {
+  test('idempotency: same key applies once', async () => {
     const l = new Ledger();
-    const a = l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
-    const b = l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
-    const e1 = l.postEntry({ entryType: 't', idempotencyKey: 'k1', lines: [
+    const a = await l.createAccount({ currency: 'KES', accountType: 'system_local_float' });
+    const b = await l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
+    const e1 = await l.postEntry({ entryType: 't', idempotencyKey: 'k1', lines: [
       { accountId: a.id, amount: '-100.00' }, { accountId: b.id, amount: '100.00' },
     ]});
-    const e2 = l.postEntry({ entryType: 't', idempotencyKey: 'k1', lines: [
+    const e2 = await l.postEntry({ entryType: 't', idempotencyKey: 'k1', lines: [
       { accountId: a.id, amount: '-100.00' }, { accountId: b.id, amount: '100.00' },
     ]});
     expect(e2.id).toBe(e1.id);
-    expect(l.getBalance(b.id).balance).toBe('100.00'); // applied once, not twice
+    expect((await l.getBalance(b.id)).balance).toBe('100.00'); // applied once, not twice
   });
 
-  test('assertSufficientBalance guards', () => {
+  test('assertSufficientBalance guards', async () => {
     const l = new Ledger();
-    const b = l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
-    expect(() => l.assertSufficientBalance(b.id, '1.00')).toThrow(InsufficientBalanceError);
+    const b = await l.createAccount({ customerId: 'c1', currency: 'KES', accountType: 'customer_wallet' });
+    await expect(l.assertSufficientBalance(b.id, '1.00')).rejects.toThrow(InsufficientBalanceError);
   });
 });

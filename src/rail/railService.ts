@@ -2,7 +2,7 @@ import { newId } from '../util/id';
 import { CountryRegistry } from '../config/countryProfile';
 import { ProviderRegistry } from '../providers/registry';
 import { FxRateProvider } from '../fx/fxRateProvider';
-import { Ledger } from '../ledger/ledger';
+import { LedgerStore } from '../ledger/store';
 import { provisionWallet } from '../wallet/walletService';
 import { toMsisdn } from '../context/phone';
 import { screenTransaction } from '../compliance/screening';
@@ -21,7 +21,7 @@ function suspenseId(currency: string): string { return `sys-${currency}-suspense
  */
 export class RailService {
   constructor(
-    private readonly ledger: Ledger,
+    private readonly ledger: LedgerStore,
     private readonly registry: CountryRegistry,
     private readonly providers: ProviderRegistry,
     private readonly fx: FxRateProvider,
@@ -40,13 +40,13 @@ export class RailService {
     const screen = screenTransaction(profile, { customerId: p.customerId, amountLocal: p.amountLocal, sanctionsHit: p.sanctionsHit });
     if (screen.decision === 'block') throw new RailError(`Deposit blocked: ${screen.reason}`);
 
-    const wallet = provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);
+    const wallet = await provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);
     const msisdn = toMsisdn(profile, p.national);
     const reference = newId();
     const res = await provider.collect({ msisdn, amount: p.amountLocal, currency: profile.localCurrency, reference });
 
     if (res.status === 'success') {
-      this.creditDeposit(profile.ledgerAccounts.localFloatId, wallet.id, p.amountLocal, reference);
+      await this.creditDeposit(profile.ledgerAccounts.localFloatId, wallet.id, p.amountLocal, reference);
       return { status: 'completed' as const, reference, providerRef: res.providerRef, walletId: wallet.id, screen: screen.decision };
     }
     if (res.status === 'pending') {
@@ -60,8 +60,8 @@ export class RailService {
     return { status: res.status, reference, reason: res.failureReason, screen: screen.decision };
   }
 
-  private creditDeposit(floatId: string, walletId: string, amountLocal: string, reference: string) {
-    this.ledger.postEntry({
+  private async creditDeposit(floatId: string, walletId: string, amountLocal: string, reference: string) {
+    await this.ledger.postEntry({
       entryType: 'momo_deposit',
       idempotencyKey: `dep-${reference}`,
       lines: [
@@ -76,12 +76,12 @@ export class RailService {
     : Promise<{ quote: ConversionQuote; localWalletId: string; usdtWalletId: string }> {
     const profile = this.registry.require(countryCode);
     if (!profile.features.walletConvert) throw new RailError(`Convert is not enabled for ${countryCode}`);
-    const localWallet = provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);
-    const usdtWallet = provisionWallet(this.ledger, p.customerId, 'USDT', null);
+    const localWallet = await provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);
+    const usdtWallet = await provisionWallet(this.ledger, p.customerId, 'USDT', null);
     const quote = await createQuote(profile, this.fx, p.direction, p.amount);
-    if (p.direction === 'local_to_usdt') this.ledger.assertSufficientBalance(localWallet.id, quote.local);
-    else this.ledger.assertSufficientBalance(usdtWallet.id, quote.usdt);
-    executeConversion(this.ledger, profile, quote,
+    if (p.direction === 'local_to_usdt') await this.ledger.assertSufficientBalance(localWallet.id, quote.local);
+    else await this.ledger.assertSufficientBalance(usdtWallet.id, quote.usdt);
+    await executeConversion(this.ledger, profile, quote,
       { customerLocalAccountId: localWallet.id, customerUsdtAccountId: usdtWallet.id }, `cvt-${newId()}`);
     return { quote, localWalletId: localWallet.id, usdtWalletId: usdtWallet.id };
   }
@@ -95,14 +95,14 @@ export class RailService {
   async withdraw(countryCode: string, p: { customerId: string; national: string; amountLocal: string }) {
     const profile = this.registry.require(countryCode);
     const provider = this.providers.resolve(profile);
-    const wallet = provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);
-    this.ledger.assertSufficientBalance(wallet.id, p.amountLocal);
+    const wallet = await provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);
+    await this.ledger.assertSufficientBalance(wallet.id, p.amountLocal);
     const msisdn = toMsisdn(profile, p.national);
     const reference = newId();
     const susId = suspenseId(profile.localCurrency);
 
     // Park the funds in suspense up front (hold).
-    this.ledger.postEntry({
+    await this.ledger.postEntry({
       entryType: 'momo_withdraw_hold',
       idempotencyKey: `wdhold-${reference}`,
       lines: [
@@ -114,7 +114,7 @@ export class RailService {
     const res = await provider.disburse({ msisdn, amount: p.amountLocal, currency: profile.localCurrency, reference });
 
     if (res.status === 'success') {
-      this.settleWithdrawSuccess(susId, profile.ledgerAccounts.localFloatId, p.amountLocal, reference);
+      await this.settleWithdrawSuccess(susId, profile.ledgerAccounts.localFloatId, p.amountLocal, reference);
       return { status: 'completed' as const, reference, providerRef: res.providerRef };
     }
     if (res.status === 'pending') {
@@ -126,12 +126,12 @@ export class RailService {
       return { status: 'pending' as const, reference, providerRef: res.providerRef };
     }
     // Immediate failure -> reverse the hold.
-    this.reverseWithdrawHold(susId, wallet.id, p.amountLocal, reference);
+    await this.reverseWithdrawHold(susId, wallet.id, p.amountLocal, reference);
     return { status: res.status, reference, reason: res.failureReason };
   }
 
-  private settleWithdrawSuccess(susId: string, floatId: string, amountLocal: string, reference: string) {
-    this.ledger.postEntry({
+  private async settleWithdrawSuccess(susId: string, floatId: string, amountLocal: string, reference: string) {
+    await this.ledger.postEntry({
       entryType: 'momo_withdraw',
       idempotencyKey: `wd-${reference}`,
       lines: [
@@ -141,8 +141,8 @@ export class RailService {
     });
   }
 
-  private reverseWithdrawHold(susId: string, walletId: string, amountLocal: string, reference: string) {
-    this.ledger.postEntry({
+  private async reverseWithdrawHold(susId: string, walletId: string, amountLocal: string, reference: string) {
+    await this.ledger.postEntry({
       entryType: 'momo_withdraw_reversal',
       idempotencyKey: `wdrev-${reference}`,
       lines: [
@@ -157,16 +157,16 @@ export class RailService {
    * Idempotent: a duplicate terminal event for an already-settled reference is a
    * no-op. Returns the settlement (or undefined if the reference is unknown).
    */
-  settle(reference: string, status: 'success' | 'failed', providerRef?: string, reason?: string): PendingSettlement | undefined {
+  async settle(reference: string, status: 'success' | 'failed', providerRef?: string, reason?: string): Promise<PendingSettlement | undefined> {
     const item = this.pending.get(reference);
     if (!item || item.status !== 'pending') return item;
 
     if (item.kind === 'deposit') {
-      if (status === 'success') this.creditDeposit(item.floatId, item.walletId, item.amountLocal, reference);
+      if (status === 'success') await this.creditDeposit(item.floatId, item.walletId, item.amountLocal, reference);
       // deposit failure: nothing was credited, just record the terminal state.
     } else {
-      if (status === 'success') this.settleWithdrawSuccess(item.suspenseId!, item.floatId, item.amountLocal, reference);
-      else this.reverseWithdrawHold(item.suspenseId!, item.walletId, item.amountLocal, reference);
+      if (status === 'success') await this.settleWithdrawSuccess(item.suspenseId!, item.floatId, item.amountLocal, reference);
+      else await this.reverseWithdrawHold(item.suspenseId!, item.walletId, item.amountLocal, reference);
     }
     return this.pending.markSettled(reference, status, Date.now(), providerRef, reason);
   }

@@ -6,7 +6,7 @@ import { PayrollService } from '../src/payroll/payrollService';
 
 describe('payroll (bulk MoMo disbursement)', () => {
   test('pays workers until the employer float runs out, debiting only the paid ones', async () => {
-    const { ledger, registry } = bootstrap();
+    const { ledger, registry } = await bootstrap();
     const providers = new ProviderRegistry();
     const rail = new RailService(ledger, registry, providers, new FixedFxRateProvider());
     const payroll = new PayrollService(ledger, registry, providers);
@@ -23,6 +23,6 @@ describe('payroll (bulk MoMo disbursement)', () => {
     expect(res.paid).toBe(1);
     expect(res.failed).toBe(1);
     expect(res.items[1].reason).toMatch(/insufficient/i);
-    expect(ledger.getBalance(ledger.findCustomerWallet('emp', 'UGX')!.id).balance).toBe('20000');
+    expect((await ledger.getBalance((await ledger.findCustomerWallet('emp', 'UGX'))!.id)).balance).toBe('20000');
   });
 });
