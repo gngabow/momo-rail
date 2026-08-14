@@ -43,8 +43,10 @@ export interface MobileMoneyProvider {
   collect(req: CollectRequest): Promise<ProviderResult>;
   /** Push funds OUT to a subscriber (MoMo Disbursements / transfer; Daraja B2C). */
   disburse(req: DisburseRequest): Promise<ProviderResult>;
-  /** Poll a transaction's status by our reference. */
-  status(reference: string): Promise<ProviderResult>;
+  /** Poll a transaction's status by our reference. `product` picks the right
+   * MoMo endpoint (collection vs disbursement); adapters that don't need it
+   * ignore it. */
+  status(reference: string, product?: 'collection' | 'disbursement'): Promise<ProviderResult>;
   /** Normalise an inbound webhook/callback payload to a provider-agnostic event. */
   handleCallback(payload: unknown): NormalizedCallback;
 }

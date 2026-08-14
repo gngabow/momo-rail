@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest --runInBand",
     "verify": "ts-node -T tests/verify.ts",
-    "demo": "ts-node -T src/demo.ts"
+    "demo": "ts-node -T src/demo.ts",
+    "momo:provision": "ts-node -T scripts/provision-momo-sandbox.ts"
   },
   "dependencies": {},
   "devDependencies": {

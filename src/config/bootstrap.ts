@@ -1,5 +1,6 @@
 import { Ledger } from '../ledger/ledger';
 import { CountryProfile, CountryRegistry, seedProfiles } from './countryProfile';
+import { liveMarkets, providerEnvName } from '../providers/momoEnv';
 
 /**
  * Wire up a runnable rail: create the system ledger accounts every seeded
@@ -13,6 +14,10 @@ export function bootstrap(): { ledger: Ledger; registry: CountryRegistry; profil
   const profiles = seedProfiles();
   const created = new Set<string>();
 
+  // Env-driven mock->live flip: MOMO_LIVE_MARKETS=UG,GH runs those on the real MTN adapter.
+  const live = liveMarkets();
+  const envName = providerEnvName();
+
   const ensure = (id: string, currency: string, accountType: Parameters<Ledger['createAccount']>[0]['accountType'], countryCode: string | null) => {
     if (created.has(id)) return;
     ledger.createAccount({ id, currency, accountType, countryCode });
@@ -20,10 +25,16 @@ export function bootstrap(): { ledger: Ledger; registry: CountryRegistry; profil
   };
 
   for (const p of profiles) {
+    if (live.has(p.code.toUpperCase())) {
+      p.providerKey = 'momo';
+      p.providerEnv = envName;
+      p.licensing = { ...p.licensing, note: `Live on MTN ${envName} adapter` };
+    }
     ensure(p.ledgerAccounts.usdtHotWalletId, 'USDT', 'system_usdt_hot_wallet', null);
     ensure(p.ledgerAccounts.usdtFeeRevenueId, 'USDT', 'system_fee_revenue', null);
     ensure(p.ledgerAccounts.localFloatId, p.localCurrency, 'system_local_float', p.code);
     ensure(p.ledgerAccounts.localFeeRevenueId, p.localCurrency, 'system_fee_revenue', p.code);
+    ensure(`sys-${p.localCurrency}-suspense`, p.localCurrency, 'system_suspense', p.code);
     registry.upsert(p);
   }
 

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { bootstrap } from '../config/bootstrap';
 import { ProviderRegistry } from '../providers/registry';
+import { getMoMoConfigFromEnv } from '../providers/momoEnv';
 import { FixedFxRateProvider } from '../fx/fxRateProvider';
 import { RailService } from '../rail/railService';
 import { PayrollService } from '../payroll/payrollService';
@@ -15,7 +16,7 @@ import { provisionWallet } from '../wallet/walletService';
  * clickable demo of the real rail, no external services required.
  */
 const { ledger, registry } = bootstrap();
-const providers = new ProviderRegistry();
+const providers = new ProviderRegistry({ getMoMoConfig: getMoMoConfigFromEnv });
 const fx = new FixedFxRateProvider();
 const rail = new RailService(ledger, registry, providers, fx);
 const payroll = new PayrollService(ledger, registry, providers);
@@ -110,6 +111,45 @@ const server = http.createServer(async (req, res) => {
       const cid = String(q.get('customer') || 'demo');
       return send(res, 200, activity.get(cid) || []);
     }
+    if (p === '/api/pending') {
+      const cid = String(q.get('customer') || 'demo');
+      return send(res, 200, rail.pendingStore().list().filter((x) => x.customerId === cid));
+    }
+
+    // MoMo provider callback — MTN posts the terminal state here (X-Callback-Url).
+    // Settles the matching in-flight deposit/withdraw exactly once.
+    if (p.startsWith('/api/momo/callback/') && req.method === 'POST') {
+      const body = await readBody(req);
+      const ref = String(body.externalId ?? body.referenceId ?? '');
+      const raw = String(body.status ?? '').toUpperCase();
+      const status: 'success' | 'failed' | 'pending' = raw === 'SUCCESSFUL' ? 'success' : raw === 'FAILED' ? 'failed' : 'pending';
+      if (status === 'pending' || !ref) return send(res, 202, { received: true });
+      const item = rail.pendingStore().get(ref);
+      const settled = rail.settle(ref, status, String(body.financialTransactionId ?? ''), body.reason ? String(body.reason) : undefined);
+      if (item) {
+        const verb = item.kind === 'deposit' ? 'Cash in' : 'Cash out';
+        logAct(item.customerId, `${verb} ${status === 'success' ? 'confirmed' : 'failed'} — ${item.amountLocal} ${item.currency}`,
+          status === 'success' ? (item.kind === 'deposit' ? 'pos' : 'neg') : 'neg');
+      }
+      return send(res, 200, { settled: settled?.status ?? 'unknown' });
+    }
+
+    // Status poll — asks the operator for a pending reference's state, settles if terminal.
+    if (p === '/api/momo/status') {
+      const ref = String(q.get('ref') || '');
+      const product: 'collection' | 'disbursement' = String(q.get('product') || 'collection') === 'disbursement' ? 'disbursement' : 'collection';
+      const item = rail.pendingStore().get(ref);
+      if (!item) return send(res, 404, { error: 'unknown reference' });
+      const profile = registry.require(item.countryCode);
+      const provider = providers.resolve(profile);
+      const pr = await provider.status(ref, product);
+      if (pr.status !== 'pending') {
+        rail.settle(ref, pr.status as 'success' | 'failed', pr.providerRef);
+        logAct(item.customerId, `${item.kind === 'deposit' ? 'Cash in' : 'Cash out'} ${pr.status === 'success' ? 'confirmed' : 'failed'} — ${item.amountLocal} ${item.currency}`,
+          pr.status === 'success' ? (item.kind === 'deposit' ? 'pos' : 'neg') : 'neg');
+      }
+      return send(res, 200, { reference: ref, status: pr.status, wallet: balances(item.customerId, item.countryCode) });
+    }
 
     if (req.method === 'POST') {
       const b = await readBody(req);
@@ -121,6 +161,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/deposit') {
         const r = await rail.deposit(country, { customerId: cid, national: b.national || '700000001', amountLocal: String(b.amount) });
         if (r.status === 'completed') logAct(cid, `Cash in — ${b.amount} ${prof.localCurrency}`, 'pos');
+        else if (r.status === 'pending') logAct(cid, `Cash in — ${b.amount} ${prof.localCurrency} · awaiting MoMo approval`, '');
         return send(res, 200, { result: r, wallet: balances(cid, country) });
       }
       if (p === '/api/convert') {
@@ -131,6 +172,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/withdraw') {
         const r = await rail.withdraw(country, { customerId: cid, national: b.national || '700000001', amountLocal: String(b.amount) });
         if (r.status === 'completed') logAct(cid, `Cash out — ${b.amount} ${prof.localCurrency}`, 'neg');
+        else if (r.status === 'pending') logAct(cid, `Cash out — ${b.amount} ${prof.localCurrency} · awaiting MoMo settlement`, '');
         return send(res, 200, { result: r, wallet: balances(cid, country) });
       }
       if (p === '/api/payroll') {

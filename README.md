@@ -73,7 +73,11 @@ across MTN's markets, only credentials/target-environment differ.
 ## Not yet built (next phases)
 
 - Postgres-backed ledger + `CountryProfile` store (schema sketched in `migrations/`).
-- Real MoMo integration against a sandbox OpCo (replace `momo_mock`).
+- ~~Real MoMo integration against a sandbox OpCo (replace `momo_mock`).~~
+  **Done — see "Going live on real MTN MoMo" below.** The MTN Open API client
+  (OAuth + token cache, Collections `requesttopay`, Disbursements `transfer`,
+  status poll, account balance), sandbox provisioning, callback settlement, and
+  a config-only mock→live flip are all built and tested.
 - Product breadth: inbound/outbound remittance, MoMoPay, agents — country-flagged.
   (**Payroll via MoMo Disbursements is already built** — `src/payroll/payrollService.ts`,
   bulk payout from an employer's local wallet to many workers' MoMo, tested.)
@@ -113,5 +117,50 @@ secrets, no MoMo credentials needed for the demo.
    was pointed at `usdt-mpesa.airtimepap.com`.
 
 Free tier sleeps after ~15 min idle (first hit wakes it in a few seconds).
+
+## Going live on real MTN MoMo (sandbox)
+
+The demo runs on the mock adapter with **no env at all**. Flipping a market onto
+the real MTN Open API is pure config — no code change:
+
+1. **Get a subscription key.** Register at
+   [momodeveloper.mtn.com](https://momodeveloper.mtn.com), subscribe to the
+   **Collections** product, copy its **Primary Key** (subscribe to
+   **Disbursements** too for payouts).
+2. **Provision a sandbox API user + key** from that subscription key:
+
+   ```bash
+   MOMO_SUBSCRIPTION_KEY=<your key> MOMO_CALLBACK_HOST=momo.airtimepap.com npm run momo:provision
+   ```
+
+   It mints the API user + API key and prints the exact env lines to paste.
+3. **Set the env** (locally in `.env`, or on Render → Environment). See
+   `.env.example`. The key switch is `MOMO_LIVE_MARKETS=UG` — that one market
+   moves to the real adapter; everything else stays mock.
+4. **Restart.** `MOMO_TARGET_ENV=sandbox` hits MTN's sandbox; per-OpCo
+   production credentials (e.g. `MTN_UG_*`) override the shared `MOMO_*` values
+   when you go to production.
+
+### How a real transaction settles
+
+A real MoMo `requesttopay`/`transfer` returns **202 Accepted** — not final. The
+rail records a *pending settlement* and moves the ledger only when the terminal
+state is confirmed:
+
+| Verb | On 202 | On confirmed SUCCESSFUL | On FAILED |
+|---|---|---|---|
+| deposit (collect) | nothing credited; pending recorded | float → wallet | nothing (marked failed) |
+| withdraw (disburse) | funds **held** wallet → suspense | suspense → float | suspense → wallet (reversed) |
+
+Confirmation arrives two ways, both wired:
+
+- **Callback** — MTN POSTs to `MOMO_CALLBACK_URL`
+  (`/api/momo/callback/collection` or `/disbursement`); the rail settles the
+  matching reference **exactly once** (idempotent against duplicate callbacks).
+- **Status poll** — `GET /api/momo/status?ref=<reference>&product=collection`
+  asks the operator and settles if terminal.
+
+Proven by `tests/verify-async.ts` (12 assertions: pending isn't credited early,
+holds reverse on failure, settle is idempotent).
 
 See `../momo-rail-blueprint.md` for the full architecture and market-sequencing view.

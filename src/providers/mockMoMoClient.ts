@@ -42,7 +42,7 @@ export class MockMoMoClient implements MobileMoneyProvider {
     return res;
   }
 
-  async status(reference: string): Promise<ProviderResult> {
+  async status(reference: string, _product?: 'collection' | 'disbursement'): Promise<ProviderResult> {
     return this.byReference.get(reference) ?? { providerRef: '', status: 'pending' };
   }
 
