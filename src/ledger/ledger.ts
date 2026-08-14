@@ -152,4 +152,8 @@ export class Ledger implements LedgerStore {
   async listEntries(): Promise<JournalEntry[]> {
     return [...this.entries];
   }
+
+  async listAccounts(): Promise<Account[]> {
+    return [...this.accounts.values()];
+  }
 }

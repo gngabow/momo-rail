@@ -20,6 +20,8 @@ export interface LedgerStore {
 
   getAccount(id: string): Promise<Account>;
   findCustomerWallet(customerId: string, currency: string): Promise<Account | undefined>;
+  /** Enumerate every account (admin views: customer directory, reconciliation). */
+  listAccounts(): Promise<Account[]>;
   getBalance(accountId: string): Promise<{ currency: string; balance: string; minor: bigint }>;
   assertSufficientBalance(accountId: string, amount: string): Promise<void>;
   postEntry(params: { entryType: string; idempotencyKey?: string; lines: JournalLine[] }): Promise<JournalEntry>;

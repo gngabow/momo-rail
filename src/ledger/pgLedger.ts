@@ -179,6 +179,12 @@ export class PgLedger implements LedgerStore {
     for (const row of er.rows) out.push(await this.loadEntry(this.pool, row));
     return out;
   }
+
+  async listAccounts(): Promise<Account[]> {
+    const r = await this.pool.query(
+      `SELECT id, customer_id, currency, account_type, country_code, status, created_at FROM accounts ORDER BY created_at ASC`);
+    return r.rows.map(rowToAccount);
+  }
 }
 
 function rowToAccount(r: any): Account {

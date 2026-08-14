@@ -11,7 +11,7 @@ import { provisionWallet } from '../wallet/walletService';
  * country-agnostic ledger entry. Biller directory is seeded per market here;
  * in production it's a hot-editable table (like billers in the M-Pesa build).
  */
-export interface Biller { code: string; name: string; country: string; currency: string; category: string; }
+export interface Biller { code: string; name: string; country: string; currency: string; category: string; enabled: boolean; }
 
 export interface BillPayReceipt {
   ref: string; billerCode: string; billerName: string;
@@ -36,20 +36,53 @@ export class BillerService {
     for (const p of registry.list()) {
       for (const [suf, name] of CATEGORIES) {
         const code = `${p.code}-${suf}`;
-        this.billers.set(code, { code, name: `${name} · ${p.displayName}`, country: p.code, currency: p.localCurrency, category: name });
+        this.billers.set(code, { code, name: `${name} · ${p.displayName}`, country: p.code, currency: p.localCurrency, category: name, enabled: true });
       }
     }
   }
 
+  /** Customer-facing list: only enabled billers, optionally scoped to a market. */
   list(country?: string): Biller[] {
+    const all = [...this.billers.values()].filter((b) => b.enabled);
+    return country ? all.filter((b) => b.country === country.toUpperCase()) : all;
+  }
+  /** Admin list: every biller including disabled ones. */
+  listAll(country?: string): Biller[] {
     const all = [...this.billers.values()];
     return country ? all.filter((b) => b.country === country.toUpperCase()) : all;
   }
   get(code: string): Biller | undefined { return this.billers.get(code.toUpperCase()); }
 
+  /** Admin: create or update a biller (name/category/enabled). Country+currency are
+   * resolved from the market so a biller can't reference an unknown currency. */
+  upsert(p: { code: string; name: string; country: string; category?: string; enabled?: boolean }): Biller {
+    const profile = this.registry.get(p.country); // throws on unknown market
+    const code = p.code.toUpperCase();
+    const existing = this.billers.get(code);
+    const biller: Biller = {
+      code,
+      name: p.name || existing?.name || code,
+      country: profile.code,
+      currency: profile.localCurrency,
+      category: p.category ?? existing?.category ?? 'Other',
+      enabled: p.enabled ?? existing?.enabled ?? true,
+    };
+    this.billers.set(code, biller);
+    return biller;
+  }
+
+  /** Admin: enable/disable a biller without deleting it. */
+  setEnabled(code: string, enabled: boolean): Biller {
+    const b = this.get(code);
+    if (!b) throw new BillerError(`Unknown biller "${code}"`);
+    b.enabled = enabled;
+    return b;
+  }
+
   async pay(p: { customerId: string; billerCode: string; amount: string }): Promise<BillPayReceipt> {
     const biller = this.get(p.billerCode);
     if (!biller) throw new BillerError(`Unknown biller "${p.billerCode}"`);
+    if (!biller.enabled) throw new BillerError(`Biller "${biller.code}" is disabled`);
     const profile = this.registry.require(biller.country);
     if (!profile.features.merchantPay) throw new BillerError(`Merchant pay is not enabled for ${biller.country}`);
     const wallet = await provisionWallet(this.ledger, p.customerId, profile.localCurrency, profile.code);

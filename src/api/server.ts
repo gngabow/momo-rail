@@ -5,6 +5,7 @@ import { bootstrap } from '../config/bootstrap';
 import { Ledger } from '../ledger/ledger';
 import { PgLedger } from '../ledger/pgLedger';
 import { LedgerStore } from '../ledger/store';
+import { fromMinor } from '../ledger/money';
 import { CountryRegistry } from '../config/countryProfile';
 import { ProviderRegistry } from '../providers/registry';
 import { getMoMoConfigFromEnv } from '../providers/momoEnv';
@@ -87,6 +88,31 @@ async function balances(cid: string, code: string) {
     local: lw ? (await ledger.getBalance(lw.id)).balance : '0',
     usdt: uw ? (await ledger.getBalance(uw.id)).balance : '0.000000',
   };
+}
+
+/** Admin: build a directory of customers from their wallet accounts, with balances.
+ * Customer identity is `cust:<CC>:<msisdn>` (or `cust:INTL:<msisdn>` for USDT-only). */
+async function customerDirectory(): Promise<any[]> {
+  const accts = await ledger.listAccounts();
+  const byCust = new Map<string, any>();
+  for (const a of accts) {
+    if (a.accountType !== 'customer_wallet' || !a.customerId) continue;
+    let rec = byCust.get(a.customerId);
+    if (!rec) {
+      const m = /^cust:([A-Z]{2}):(.+)$/.exec(a.customerId);
+      const intl = isIntlCustomer(a.customerId);
+      rec = {
+        cid: a.customerId,
+        country: intl ? 'INTL' : (a.countryCode || (m ? m[1] : null)),
+        msisdn: intl ? a.customerId.slice('cust:INTL:'.length) : (m ? m[2] : null),
+        intl, wallets: [] as any[],
+      };
+      byCust.set(a.customerId, rec);
+    }
+    const bal = await ledger.getBalance(a.id);
+    rec.wallets.push({ currency: a.currency, balance: bal.balance, countryCode: a.countryCode, status: a.status });
+  }
+  return [...byCust.values()];
 }
 
 function send(res: http.ServerResponse, code: number, obj: unknown) {
@@ -268,6 +294,111 @@ const server = http.createServer(async (req, res) => {
         });
         return send(res, 200, recent);
       }
+
+      // Customer 360 — directory of customers with their wallet balances.
+      if (p === '/api/admin/customers') {
+        const dir = await customerDirectory();
+        const rows = dir.map((c) => ({
+          cid: c.cid, country: c.country, msisdn: c.msisdn, intl: c.intl,
+          wallets: c.wallets.length,
+          usdt: (c.wallets.find((w: any) => w.currency === 'USDT') || {}).balance || '0.000000',
+          local: (c.wallets.find((w: any) => w.currency !== 'USDT') || {}),
+          activity: (activity.get(c.cid) || []).length,
+        }));
+        return send(res, 200, { count: rows.length, customers: rows });
+      }
+      // Customer 360 — one customer's full picture.
+      if (p === '/api/admin/customer') {
+        const cid = String(q.get('cid') || '');
+        const dir = await customerDirectory();
+        const c = dir.find((x) => x.cid === cid);
+        if (!c) return send(res, 404, { error: 'unknown customer' });
+        return send(res, 200, {
+          cid: c.cid, country: c.country, msisdn: c.msisdn, intl: c.intl,
+          wallets: c.wallets, activity: activity.get(cid) || [], outbox: remit.outboxFor(cid),
+        });
+      }
+
+      // Compliance — per-market KYC/sanctions/licensing config + large-value monitoring queue.
+      if (p === '/api/admin/compliance') {
+        const markets = registry.list().map((m) => ({
+          code: m.code, name: m.displayName, ccy: m.localCurrency, enabled: m.enabled,
+          kyc: m.kycProviderKey, sanctions: m.sanctionsProviderKey,
+          reviewThresholdLocal: m.screening.reviewThresholdLocal, blockOnSanctionsHit: m.screening.blockOnSanctionsHit,
+          vaspLicensed: m.licensing.vaspLicensed, regime: m.licensing.regime, perTxMaxLocal: m.limits.perTxMaxLocal,
+        }));
+        const REVIEW_USDT = 1000; // demo AML large-value flag (USDT-equivalent)
+        const entries = await ledger.listEntries();
+        const monitor = entries.slice(-60).reverse().map((e) => {
+          const line = e.lines.filter((l) => Number(l.amount) > 0).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)))[0];
+          if (!line) return null;
+          const ccy = line.currency;
+          const rate = ccy === 'USDT' ? 1 : Number(rates[ccy] || 0);
+          const usdtEq = ccy === 'USDT' ? Number(line.amount) : (rate ? Number(line.amount) / rate : 0);
+          return { type: e.entryType, amount: line.amount, currency: ccy, usdtEquiv: usdtEq.toFixed(2), review: usdtEq >= REVIEW_USDT, at: e.createdAt };
+        }).filter(Boolean) as any[];
+        return send(res, 200, { reviewThresholdUsdt: REVIEW_USDT, flagged: monitor.filter((m) => m.review).length, markets, monitor });
+      }
+
+      // Reconciliation — double-entry integrity: system + customer balances net to zero per currency.
+      if (p === '/api/admin/reconciliation') {
+        const accts = await ledger.listAccounts();
+        const byCcy = new Map<string, { currency: string; systemMinor: bigint; customerMinor: bigint; accounts: number }>();
+        for (const a of accts) {
+          const b = await ledger.getBalance(a.id);
+          const rec = byCcy.get(a.currency) || { currency: a.currency, systemMinor: 0n, customerMinor: 0n, accounts: 0 };
+          if (a.accountType === 'customer_wallet') rec.customerMinor += b.minor; else rec.systemMinor += b.minor;
+          rec.accounts++;
+          byCcy.set(a.currency, rec);
+        }
+        const rows = [...byCcy.values()].map((r) => {
+          const residual = r.systemMinor + r.customerMinor;
+          return {
+            currency: r.currency, accounts: r.accounts,
+            system: fromMinor(r.systemMinor, r.currency),
+            customer: fromMinor(r.customerMinor, r.currency),
+            residual: fromMinor(residual, r.currency),
+            balanced: residual === 0n,
+          };
+        });
+        return send(res, 200, {
+          balanced: rows.every((r) => r.balanced),
+          currencies: rows.length,
+          rows,
+          inFlight: { pendingSettlements: rail.pendingStore().list().length, reservedClaims: remit.reservedClaims().length },
+        });
+      }
+
+      // Support — agent lookup: find customers by number/country and show a snapshot.
+      if (p === '/api/admin/support') {
+        const term = String(q.get('q') || '').trim().toLowerCase();
+        const dir = await customerDirectory();
+        const match = dir.filter((c) => !term
+          || String(c.msisdn || '').toLowerCase().includes(term)
+          || String(c.country || '').toLowerCase().includes(term)
+          || String(c.cid).toLowerCase().includes(term));
+        const rows = match.slice(0, 25).map((c) => {
+          const acts = activity.get(c.cid) || [];
+          return {
+            cid: c.cid, country: c.country, msisdn: c.msisdn, intl: c.intl,
+            wallets: c.wallets, activityCount: acts.length, lastActivity: acts[0] ? acts[0].text : null,
+          };
+        });
+        return send(res, 200, { count: match.length, results: rows });
+      }
+
+      // Biller admin — full directory (incl. disabled) for editing.
+      if (p === '/api/admin/billers') {
+        return send(res, 200, billers.listAll(q.get('country') ? String(q.get('country')) : undefined));
+      }
+      // Biller admin — create/update or enable/disable a biller.
+      if (p === '/api/admin/biller' && req.method === 'POST') {
+        const b = await readBody(req);
+        if (b.action === 'toggle') return send(res, 200, { biller: billers.setEnabled(String(b.code || ''), !!b.enabled) });
+        const biller = billers.upsert({ code: String(b.code || ''), name: String(b.name || ''), country: String(b.country || ''), category: b.category ? String(b.category) : undefined, enabled: b.enabled });
+        return send(res, 200, { biller });
+      }
+
       return send(res, 404, { error: 'unknown admin route' });
     }
 

@@ -21,7 +21,7 @@
   .csel select{background:transparent;color:#fff;border:none;font-size:.9rem;outline:none}
   .csel select option{color:#111}
   .wrap{max-width:960px;margin:18px auto;padding:0 16px}
-  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
   .tabs button{border:1px solid var(--line);background:#fff;padding:8px 16px;border-radius:20px;font-weight:600;color:var(--muted);cursor:pointer}
   .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
   .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
@@ -276,9 +276,16 @@ function renderWallet(){
       :'<div class="muted small">Nothing yet — try a cash-in, then convert to USDT.</div>'}</div>`;
   view.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>openModal(b.dataset.act));
 }
+function customerDetailHtml(c){
+  const w=(c.wallets||[]).map(x=>`<div class="row"><span>${x.currency}${x.countryCode?' · '+x.countryCode:''}</span><span>${x.currency==='USDT'?fmtU(x.balance)+' USDT':fmt(x.balance,x.currency)+' '+x.currency} ${x.status==='frozen'?'<span class="pill off">frozen</span>':''}</span></div>`).join('')||'<div class="muted small">No wallets.</div>';
+  const a=(c.activity||[]).map(x=>`<div class="row"><span>${x.text}</span><span class="small muted">${new Date(x.t).toLocaleString()}</span></div>`).join('')||'<div class="muted small">No activity.</div>';
+  const o=(c.outbox||[]).map(x=>`<div class="row"><span>→ +${x.destMsisdn} · ${fmtU(x.amountUsdt)} USDT</span><span class="small muted">${x.status}</span></div>`).join('')||'<div class="muted small">No remittances sent.</div>';
+  const lbl=t=>`<div class="small muted" style="text-transform:uppercase;font-size:.64rem;letter-spacing:.4px;margin-top:10px">${t}</div>`;
+  return `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:6px">${lbl('Wallets')}${w}${lbl('Activity')}${a}${lbl('Remittances sent')}${o}</div>`;
+}
 function opcoMarketsHtml(){
   return `<div class="panel"><h3>Opco Markets — directory</h3>
-      <div class="small muted" style="margin-bottom:6px">16 MTN MoMo markets across 13 currencies, all served by one code path. Only <b>enabled</b> markets are available for customers to sign in.</div>
+      <div class="small muted" style="margin-bottom:6px">${state.markets.length} MTN MoMo markets across ${new Set(state.markets.map(m=>m.ccy)).size} currencies, all served by one code path. Only <b>enabled</b> markets are available for customers to sign in.</div>
       <div style="overflow:auto"><table><thead><tr><th></th><th>Market</th><th>Currency</th><th>Rate / USDT</th><th>Operator</th><th>Status</th><th>Enabled</th></tr></thead><tbody>
       ${state.markets.map(m=>`<tr><td><span class="fi fi-${m.code.toLowerCase()}"></span></td><td>${m.name}</td><td>${m.ccy}</td><td>${fmt(m.rate,m.ccy)}</td><td class="small muted">${m.op}</td><td><span class="pill ${m.tested?'':'cfg'}">${m.tested?'wired':'config-ready'}</span></td><td><span class="pill ${m.enabled?'':'off'}">${m.enabled?'enabled':'disabled'}</span></td></tr>`).join('')}
       </tbody></table></div></div>`;
@@ -288,7 +295,7 @@ async function renderAdmin(){
   const H={headers:{Authorization:'Bearer '+ADMIN}};
   const sub=state.adminView||'console';
   const tb=(id,label)=>`<button class="${sub===id?'on':''}" data-atab="${id}">${label}</button>`;
-  const tabbar=`<div class="tabs">${tb('console','Admin Opcos Console')}${tb('markets','Opco Markets')}${tb('config','Configure Opcos')}</div>`;
+  const tabbar=`<div class="tabs">${tb('console','Admin Opcos Console')}${tb('markets','Opco Markets')}${tb('config','Configure Opcos')}${tb('customers','Customer 360')}${tb('compliance','Compliance')}${tb('recon','Reconciliation')}${tb('support','Support')}${tb('billers','Billers')}</div>`;
   const wireTabs=()=>view.querySelectorAll('[data-atab]').forEach(b=>b.onclick=()=>{state.adminView=b.dataset.atab;renderAdmin();});
   document.getElementById('foot').innerHTML='Admin ops console — monitor treasury and settlements, and configure/enable Opco markets. Enabled markets are the ones customers can sign in with on the landing page.';
   const tile=(lab,val)=>`<div style="flex:1;min-width:104px;background:var(--ice);border-radius:10px;padding:10px 12px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.4px;font-size:.64rem">${lab}</div><div style="font-weight:800;font-size:1.15rem;margin-top:2px">${val}</div></div>`;
@@ -341,6 +348,95 @@ async function renderAdmin(){
         }catch(e){document.getElementById('err').innerHTML=`<div class="msg err">${e.message}</div>`;}
       };
     });
+    return;
+  }
+
+  const flagOf=c=>`<span class="fi fi-${String(c||'').toLowerCase()}"></span>`;
+
+  // ---- Customer 360 ----
+  if(sub==='customers'){
+    let d; try{ d=await api('/api/admin/customers',H); }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
+    const rows=d.customers.map(c=>`<tr data-cid="${c.cid}"><td style="white-space:nowrap">${c.intl?'🌍 INTL':flagOf(c.country)+' '+(c.country||'—')}</td><td>${c.msisdn||c.cid}</td><td><span class="pill ${c.intl?'cfg':''}">${c.intl?'USDT-only':'Opco'}</span></td><td>${fmtU(c.usdt)} USDT</td><td>${c.local&&c.local.currency?fmt(c.local.balance,c.local.currency)+' '+c.local.currency:'—'}</td><td>${c.activity}</td><td><button class="lnk view" style="border-color:var(--brand);color:var(--brand)">View</button></td></tr>`).join('');
+    view.innerHTML=tabbar+`<div class="panel"><h3>Customer 360 — ${d.count} customer${d.count===1?'':'s'}</h3>
+      <div class="small muted" style="margin-bottom:8px">Every signed-in customer, their wallets and balances. Click View for the full picture.</div>
+      <input id="csearch" class="inp" placeholder="Filter by number or country…" style="margin-bottom:10px">
+      <div style="overflow:auto"><table><thead><tr><th>Market</th><th>Number</th><th>Type</th><th>USDT</th><th>Local</th><th>Events</th><th></th></tr></thead><tbody id="cbody">${rows||'<tr><td colspan="7" class="muted small">No customers yet.</td></tr>'}</tbody></table></div>
+      <div id="cdetail"></div></div>`;
+    wireTabs();
+    const s=document.getElementById('csearch'); if(s) s.oninput=()=>{const t=(s.value||'').toLowerCase();view.querySelectorAll('#cbody tr[data-cid]').forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(t)?'':'none';});};
+    view.querySelectorAll('tr[data-cid]').forEach(tr=>{const v=tr.querySelector('.view'); if(v) v.onclick=async()=>{ try{ const c=await api('/api/admin/customer?cid='+encodeURIComponent(tr.dataset.cid),H); document.getElementById('cdetail').innerHTML=customerDetailHtml(c);}catch(e){} };});
+    return;
+  }
+
+  // ---- Compliance ----
+  if(sub==='compliance'){
+    let d; try{ d=await api('/api/admin/compliance',H); }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
+    const mk=d.markets.map(m=>`<tr><td style="white-space:nowrap">${flagOf(m.code)} ${m.code}·${m.ccy}</td><td>${m.kyc}</td><td>${m.sanctions}</td><td class="small">${m.vaspLicensed?'licensed':m.regime}</td><td>${fmt(m.reviewThresholdLocal,m.ccy)} ${m.ccy}</td><td>${m.blockOnSanctionsHit?'<span class="pill off">block</span>':'<span class="pill">flag</span>'}</td></tr>`).join('');
+    const mon=d.monitor.map(x=>`<tr><td>${x.type}</td><td>${fmt(x.amount,x.currency)} ${x.currency}</td><td>${x.usdtEquiv} USDT</td><td>${x.review?'<span class="pill off">review</span>':'<span class="pill cl">ok</span>'}</td></tr>`).join('');
+    view.innerHTML=tabbar+`<div class="panel"><h3>Compliance</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">${tile('Markets screened',d.markets.length)}${tile('Flagged for review',d.flagged)}${tile('Review at ≥',d.reviewThresholdUsdt+' USDT')}</div>
+      <div style="overflow:auto"><table><thead><tr><th>Market</th><th>KYC</th><th>Sanctions</th><th>Licensing</th><th>Review threshold</th><th>On hit</th></tr></thead><tbody>${mk}</tbody></table></div></div>
+      <div class="panel"><h3>Transaction monitoring</h3><div class="small muted" style="margin-bottom:6px">Recent movements, flagged when the USDT-equivalent is at or above the review threshold.</div>
+      <div style="overflow:auto"><table><thead><tr><th>Type</th><th>Amount</th><th>≈ USDT</th><th>Status</th></tr></thead><tbody>${mon||'<tr><td colspan="4" class="muted small">No activity yet.</td></tr>'}</tbody></table></div></div>`;
+    wireTabs(); return;
+  }
+
+  // ---- Reconciliation ----
+  if(sub==='recon'){
+    let d; try{ d=await api('/api/admin/reconciliation',H); await loadMarkets(); }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
+    const ccyFlag={}; state.markets.forEach(m=>{ if(!ccyFlag[m.ccy]) ccyFlag[m.ccy]=m.code; });
+    const fl=ccy=>ccyFlag[ccy]?`<span class="fi fi-${ccyFlag[ccy].toLowerCase()}"></span> `:'';
+    const rows=d.rows.map(r=>`<tr><td style="white-space:nowrap">${fl(r.currency)}${r.currency}</td><td>${r.system}</td><td>${r.customer}</td><td>${r.residual}</td><td>${r.balanced?'<span class="pill cl">balanced</span>':'<span class="pill off">MISMATCH</span>'}</td></tr>`).join('');
+    view.innerHTML=tabbar+`<div class="panel"><h3>Reconciliation</h3>
+      <div style="margin-bottom:10px">${d.balanced?'<span class="pill cl" style="font-size:.8rem;padding:4px 12px">✓ Books balanced — every currency nets to zero</span>':'<span class="pill off" style="font-size:.8rem;padding:4px 12px">⚠ Mismatch detected</span>'}</div>
+      <div class="small muted" style="margin-bottom:8px">Double-entry integrity: system-account balances and customer balances must net to exactly zero per currency. Residual is the proof.</div>
+      <div style="overflow:auto"><table><thead><tr><th>Currency</th><th>System</th><th>Customer</th><th>Residual</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="muted small">No ledger accounts yet.</td></tr>'}</tbody></table></div>
+      <div class="small muted" style="margin-top:8px">In-flight: ${d.inFlight.pendingSettlements} pending settlement(s) · ${d.inFlight.reservedClaims} reserved remittance(s) — money legitimately in transit, expected to drain.</div></div>`;
+    wireTabs(); return;
+  }
+
+  // ---- Support ----
+  if(sub==='support'){
+    const load=async(term)=>{ try{
+      const d=await api('/api/admin/support?q='+encodeURIComponent(term||''),H);
+      const rows=d.results.map(r=>`<tr><td style="white-space:nowrap">${r.intl?'🌍 INTL':flagOf(r.country)+' '+(r.country||'—')}</td><td>${r.msisdn||r.cid}</td><td>${r.wallets.map(w=>(w.currency==='USDT'?fmtU(w.balance)+' USDT':fmt(w.balance,w.currency)+' '+w.currency)).join('<br>')||'—'}</td><td class="small">${r.lastActivity||'—'}</td><td>${r.activityCount}</td></tr>`).join('');
+      const b=document.getElementById('sbody'); if(b) b.innerHTML=rows||'<tr><td colspan="5" class="muted small">No match.</td></tr>';
+      const cc=document.getElementById('scount'); if(cc) cc.textContent=d.count+' found';
+    }catch(e){} };
+    view.innerHTML=tabbar+`<div class="panel"><h3>Support — customer lookup</h3>
+      <div class="small muted" style="margin-bottom:8px">Search by phone number or country to pull up a customer's wallets and recent activity.</div>
+      <input id="ssearch" class="inp" placeholder="Search number or country…" style="margin-bottom:6px"><div class="small muted" id="scount" style="margin-bottom:8px"></div>
+      <div style="overflow:auto"><table><thead><tr><th>Market</th><th>Number</th><th>Wallets</th><th>Last activity</th><th>Events</th></tr></thead><tbody id="sbody"></tbody></table></div></div>`;
+    wireTabs();
+    const s=document.getElementById('ssearch'); if(s) s.oninput=e=>load(e.target.value);
+    await load('');
+    return;
+  }
+
+  // ---- Billers ----
+  if(sub==='billers'){
+    let d; try{ d=await api('/api/admin/billers',H); await loadMarkets(); }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
+    const esc=s=>String(s||'').replace(/"/g,'&quot;');
+    const rows=d.map(b=>`<tr data-code="${b.code}" data-country="${b.country}"><td style="white-space:nowrap">${flagOf(b.country)} ${b.country}</td><td>${b.code}</td><td><input class="bn inp" style="padding:5px" value="${esc(b.name)}"></td><td><input class="bc inp" style="width:120px;padding:5px" value="${esc(b.category)}"></td><td><input type="checkbox" class="be"${b.enabled?' checked':''}></td><td><button class="lnk bsave" style="border-color:var(--brand);color:var(--brand)">Save</button></td></tr>`).join('');
+    const opts=state.markets.map(m=>`<option value="${m.code}">${m.code}·${m.ccy}</option>`).join('');
+    view.innerHTML=tabbar+`<div class="panel"><h3>Billers — directory</h3>
+      <div class="small muted" style="margin-bottom:8px">Edit a biller's name or category, enable or disable it. Disabled billers can't be paid. ${d.length} biller(s).</div>
+      <div style="overflow:auto"><table><thead><tr><th>Market</th><th>Code</th><th>Name</th><th>Category</th><th>On</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><div id="err"></div></div>
+      <div class="panel"><h3>Add a biller</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div><label>Market</label><select id="nbc" class="inp">${opts}</select></div>
+        <div><label>Code</label><input id="nbcode" class="inp" placeholder="UG-DSTV"></div>
+        <div><label>Name</label><input id="nbname" class="inp" placeholder="DSTV · Uganda"></div>
+        <div><label>Category</label><input id="nbcat" class="inp" placeholder="TV"></div>
+        <button class="btn" id="nbadd" style="width:auto">Add</button></div><div id="err2"></div></div>`;
+    wireTabs();
+    view.querySelectorAll('tr[data-code]').forEach(tr=>{ const sv=tr.querySelector('.bsave'); if(sv) sv.onclick=async()=>{
+      try{ await POST('/api/admin/biller',{code:tr.dataset.code,name:tr.querySelector('.bn').value,category:tr.querySelector('.bc').value,country:tr.dataset.country,enabled:tr.querySelector('.be').checked},{Authorization:'Bearer '+ADMIN});
+        sv.textContent='Saved ✓'; setTimeout(()=>sv.textContent='Save',1200);
+      }catch(e){ document.getElementById('err').innerHTML=`<div class="msg err">${e.message}</div>`; } };});
+    const add=document.getElementById('nbadd'); if(add) add.onclick=async()=>{
+      try{ await POST('/api/admin/biller',{code:document.getElementById('nbcode').value,name:document.getElementById('nbname').value,category:document.getElementById('nbcat').value,country:document.getElementById('nbc').value,enabled:true},{Authorization:'Bearer '+ADMIN});
+        state.adminView='billers'; renderAdmin();
+      }catch(e){ document.getElementById('err2').innerHTML=`<div class="msg err">${e.message}</div>`; } };
     return;
   }
 
