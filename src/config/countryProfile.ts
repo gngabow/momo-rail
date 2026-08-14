@@ -97,8 +97,8 @@ export class CountryRegistry {
 const SHARED_USDT_HOT = 'sys-USDT-hot';
 const SHARED_USDT_FEEREV = 'sys-USDT-feerev';
 
-/** Compact seed table: MTN MoMo's African footprint plus Kenya as a reference
- * market on the same rail. `tested` marks the markets wired end-to-end today.
+/** Compact seed table: MTN MoMo's African footprint. `tested` marks the markets
+ * wired end-to-end today.
  * Currencies with no minor unit (XOF, XAF, RWF, UGX, GNF) exercise scale-0
  * money handling; the rest are scale-2. FX rates are illustrative (see
  * fxRateProvider). System ledger accounts are keyed by currency, so markets
@@ -125,8 +125,6 @@ const MOMO_MARKETS: MarketSeed[] = [
   { code: 'SZ', name: 'Eswatini', currency: 'SZL', dial: '268' },
   { code: 'ZA', name: 'South Africa', currency: 'ZAR', dial: '27' },
   { code: 'SS', name: 'South Sudan', currency: 'SSP', dial: '211' },
-  // Reference market — Safaricom, not MTN — proving the provider seam is operator-agnostic.
-  { code: 'KE', name: 'Kenya', currency: 'KES', dial: '254', phoneRegex: '^(7|1)\\d{8}$', merchantModel: 'paybill_till', operator: 'SAFARICOM_KE', tested: true },
 ];
 
 function toProfile(m: MarketSeed): CountryProfile {
@@ -139,7 +137,7 @@ function toProfile(m: MarketSeed): CountryProfile {
     phoneRegex: m.phoneRegex ?? '^\\d{7,12}$',
     msisdnFormat: 'bare',
     momoOperator: m.operator ?? `MTN_${m.code}`,
-    providerKey: 'momo_mock', // production: 'momo' (per MTN OpCo) or 'daraja' for KE
+    providerKey: 'momo_mock', // production: 'momo' (per MTN OpCo)
     providerEnv: 'sandbox',
     feeSchedule: { convertRate: 0.015, remittanceRate: 0.02, merchantPayRate: 0 },
     limits: { perTxMaxLocal: '1000000000' },

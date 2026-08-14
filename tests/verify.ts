@@ -53,20 +53,20 @@ async function main() {
   {
     const ps = seedProfiles();
     const UG = ps.find((p) => p.code === 'UG')!;
-    const KE = ps.find((p) => p.code === 'KE')!;
+    const GH = ps.find((p) => p.code === 'GH')!;
     const fx = new FixedFxRateProvider();
     const q1 = await createQuote(UG, fx, 'local_to_usdt', '380000');
     ok('UGX->USDT rate+fee', q1.usdt === '100.000000' && q1.fee === '1.500000' && q1.net === '98.500000');
     const q2 = await createQuote(UG, fx, 'usdt_to_local', '100');
     ok('USDT->UGX fee in local', q2.local === '380000' && q2.fee === '5700' && q2.net === '374300');
-    const q3 = await createQuote(KE, fx, 'local_to_usdt', '12900');
-    ok('KES->USDT same path', q3.net === '98.500000' && q3.feeCurrency === 'USDT');
+    const q3 = await createQuote(GH, fx, 'local_to_usdt', '1550');
+    ok('GHS->USDT same path', q3.net === '98.500000' && q3.feeCurrency === 'USDT');
   }
 
   console.log('rail (two-country, one code path)');
   for (const m of [
     { country: 'UG', national: '772123456', currency: 'UGX', deposit: '400000', convert: '380000', zero: '0' },
-    { country: 'KE', national: '712345678', currency: 'KES', deposit: '20000', convert: '12900', zero: '0.00' },
+    { country: 'GH', national: '241234567', currency: 'GHS', deposit: '2000', convert: '1550', zero: '0.00' },
   ] as const) {
     const { ledger, registry } = await bootstrap();
     const rail = new RailService(ledger, registry, new ProviderRegistry(), new FixedFxRateProvider());
@@ -83,8 +83,8 @@ async function main() {
   {
     const { ledger, registry } = await bootstrap();
     const rail = new RailService(ledger, registry, new ProviderRegistry(), new FixedFxRateProvider());
-    const dep = await rail.deposit('KE', { customerId: 'c9', national: '712340000', amountLocal: '5000' });
-    ok('declined prompt -> no balance', dep.status === 'failed' && (await ledger.getBalance((await ledger.findCustomerWallet('c9', 'KES'))!.id)).balance === '0.00');
+    const dep = await rail.deposit('GH', { customerId: 'c9', national: '241230000', amountLocal: '5000' });
+    ok('declined prompt -> no balance', dep.status === 'failed' && (await ledger.getBalance((await ledger.findCustomerWallet('c9', 'GHS'))!.id)).balance === '0.00');
     await throws('sanctions hit blocks', () => rail.deposit('UG', { customerId: 'c1', national: '772123456', amountLocal: '100000', sanctionsHit: true }), RailError);
     await throws('unknown country rejected', () => rail.deposit('ZZ', { customerId: 'c1', national: '700000000', amountLocal: '1000' }));
   }

@@ -501,7 +501,7 @@ function openModal(a){
   if(a==='bill'){
     shell(`Pay a bill — ${w.name}`,`<label>Biller</label><select id="bl" class="inp"><option>Loading…</option></select>
       <label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="1000">
-      <div class="small muted" style="margin-top:8px">Pays via ${w.operator} — MoMoPay / Paybill.</div><div id="err"></div><button class="btn" id="go">Pay</button>`);
+      <div class="small muted" style="margin-top:8px">Pays via ${w.operator} — MoMoPay.</div><div id="err"></div><button class="btn" id="go">Pay</button>`);
     api(`/api/billers?country=${state.cc}`).then(bs=>{document.getElementById('bl').innerHTML=bs.map(b=>`<option value="${b.code}">${b.name}</option>`).join('');});
     act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter an amount.');
       const r=await POST('/api/bill/pay',{customer:CID,country:state.cc,billerCode:document.getElementById('bl').value,amount:v});

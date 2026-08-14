@@ -4,7 +4,7 @@ import { createQuote } from '../src/exchange/exchange';
 
 const profiles = seedProfiles();
 const UG = profiles.find((p) => p.code === 'UG')!;
-const KE = profiles.find((p) => p.code === 'KE')!;
+const GH = profiles.find((p) => p.code === 'GH')!;
 const fx = new FixedFxRateProvider();
 
 describe('exchange (country-driven convert)', () => {
@@ -24,8 +24,8 @@ describe('exchange (country-driven convert)', () => {
     expect(q.targetCurrency).toBe('UGX');
   });
 
-  test('KES -> USDT reaches the same USDT on the same code path', async () => {
-    const q = await createQuote(KE, fx, 'local_to_usdt', '12900'); // 12900 KES @ 129 = 100 USDT
+  test('GHS -> USDT reaches the same USDT on the same code path', async () => {
+    const q = await createQuote(GH, fx, 'local_to_usdt', '1550'); // 1550 GHS @ 15.5 = 100 USDT
     expect(q.net).toBe('98.500000');
     expect(q.feeCurrency).toBe('USDT');
   });

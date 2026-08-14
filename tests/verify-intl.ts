@@ -54,17 +54,17 @@ async function main() {
     const usdtBal = async () => (await ledger.getBalance((await ledger.findCustomerWallet(intl, 'USDT'))!.id)).balance;
     ok('international customer holds 2500 USDT', (await usdtBal()) === '2500.000000');
 
-    // Gig Workers Payroll into Kenya: convert USDT → KES, then disburse.
-    const cvt = await rail.convert('KE', { customerId: intl, direction: 'usdt_to_local', amount: '100' });
-    ok('USDT→KES convert nets 12706.50 KES', cvt.quote.net === '12706.50');
-    const kesBal = async () => (await ledger.getBalance((await ledger.findCustomerWallet(intl, 'KES'))!.id)).balance;
-    ok('intl customer now holds KES for payout', (await kesBal()) === '12706.50');
-    const run = await payroll.runBatch('KE', { employerCustomerId: intl, payees: [
-      { national: '712000001', amountLocal: '5000' },
-      { national: '712000002', amountLocal: '5000' },
+    // Gig Workers Payroll into Uganda: convert USDT → UGX, then disburse.
+    const cvt = await rail.convert('UG', { customerId: intl, direction: 'usdt_to_local', amount: '100' });
+    ok('USDT→UGX convert nets 374300 UGX', cvt.quote.net === '374300');
+    const ugxBal = async () => (await ledger.getBalance((await ledger.findCustomerWallet(intl, 'UGX'))!.id)).balance;
+    ok('intl customer now holds UGX for payout', (await ugxBal()) === '374300');
+    const run = await payroll.runBatch('UG', { employerCustomerId: intl, payees: [
+      { national: '772000001', amountLocal: '5000' },
+      { national: '772000002', amountLocal: '5000' },
     ]});
     ok('paid 2 gig workers from converted USDT', run.paid === 2 && run.failed === 0);
-    ok('remaining KES after payroll', (await kesBal()) === '2706.50');
+    ok('remaining UGX after payroll', (await ugxBal()) === '364300');
 
     // Remit to an Opco recipient.
     const sent = await remit.send({ senderCustomerId: intl, destCountry: 'UG', destNational: '772000111', amountUsdt: '50' });

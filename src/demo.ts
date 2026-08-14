@@ -14,7 +14,7 @@ async function main() {
 
   const scenarios = [
     { country: 'UG', national: '772123456', deposit: '400000', convert: '380000' },
-    { country: 'KE', national: '712345678', deposit: '20000', convert: '12900' },
+    { country: 'GH', national: '241234567', deposit: '2000', convert: '1550' },
   ] as const;
 
   for (const s of scenarios) {

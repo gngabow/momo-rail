@@ -62,21 +62,18 @@ function logAct(cid: string, text: string, cls = '') {
   activity.set(cid, a.slice(0, 20));
 }
 
-/** Give a new demo customer a starting balance so the portal is usable at once.
- * Idempotency keys make this safe to re-run across restarts on the durable path. */
+/** Provision a new customer's empty wallets so the portal has something to read.
+ * Both the USDT and local wallets start at zero — a real customer funds them by
+ * depositing local (then converting) or adding USDT, so nothing is granted for free. */
 async function seed(cid: string) {
   if (seeded.has(cid)) return;
   seeded.add(cid);
-  const uw = await provisionWallet(ledger, cid, 'USDT', null);
-  const usdtSeed = isIntlCustomer(cid) ? '2500' : '250';
-  await ledger.postEntry({ entryType: 'demo_seed', idempotencyKey: `seed-USDT-${cid}`, lines: [{ accountId: 'sys-USDT-hot', amount: `-${usdtSeed}` }, { accountId: uw.id, amount: usdtSeed }] });
+  await provisionWallet(ledger, cid, 'USDT', null); // USDT wallet, 0 balance
   if (isIntlCustomer(cid)) return; // international customers hold USDT only (no local Opco wallet)
-  const starters: [string, string, string][] = [['UG', 'UGX', '400000'], ['KE', 'KES', '15000']];
-  for (const [code, ccy, amt] of starters) {
-    const p = registry.get(code);
-    const w = await provisionWallet(ledger, cid, ccy, code);
-    await ledger.postEntry({ entryType: 'demo_seed', idempotencyKey: `seed-${ccy}-${cid}`, lines: [{ accountId: p.ledgerAccounts.localFloatId, amount: `-${amt}` }, { accountId: w.id, amount: amt }] });
-  }
+  const m = cid.match(/^cust:([A-Z]{2}):/);
+  const known = registry.list().some((p) => p.code === (m ? m[1] : ''));
+  const p = registry.require(known ? m![1] : 'UG'); // the customer's own market (default UG)
+  await provisionWallet(ledger, cid, p.localCurrency, code); // local wallet, 0 balance
 }
 
 async function balances(cid: string, code: string) {
