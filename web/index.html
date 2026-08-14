@@ -34,15 +34,23 @@
   .tabs button[data-atab="billers"]{background:#FCEBDD;color:#9A5A2A}
   .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:800}
   .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
-  .bal{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .bal{background:var(--card);border:1px solid var(--line);border-top-width:3px;border-radius:14px;padding:16px 18px;text-align:center}
+  .bal.local{border-top-color:#E0A200}
+  .bal.usdt{border-top-color:#1F7E77}
   .bal .lab{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
   .bal .amt{font-size:1.9rem;font-weight:800;margin-top:4px}
   .bal .amt small{font-size:.9rem;color:var(--muted);font-weight:600}
-  .bal.usdt{background:linear-gradient(135deg,#0F5B52,#0A3B36);color:#fff;border:none}
-  .bal.usdt .lab{color:#bfe4dc}
   .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
-  .actions button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:14px 8px;cursor:pointer;font-weight:700;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:6px}
-  .actions button:hover{border-color:var(--brand);color:var(--brand)}.actions .ic{font-size:1.3rem}
+  .actions button{border:1px solid var(--line);border-top-width:3px;background:#fff;border-radius:12px;padding:14px 8px;cursor:pointer;font-weight:700;color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:78px;line-height:1.15;transition:filter .12s}
+  .actions button:hover{filter:brightness(.97)}.actions .ic{font-size:1.3rem;line-height:1}
+  .actions .a-in{background:#E4EEFB;border-color:#CFDFF4;border-top-color:#1B4F8A;color:#1B4F8A}
+  .actions .a-cash{background:#FFF3D9;border-color:#F0E1B8;border-top-color:#8A5A00;color:#8A5A00}
+  .actions .a-send{background:#E2F3F4;border-color:#CBE6E7;border-top-color:#0B6A6E;color:#0B6A6E}
+  .actions .a-pay{background:#E7F1EF;border-color:#D2E6E1;border-top-color:#0F5B52;color:#0F5B52}
+  .actions .lbl{display:flex;flex-direction:column;align-items:center;line-height:1.1}
+  .actions .lbl .l1{font-weight:700}
+  .actions .lbl .l2{font-weight:700;white-space:nowrap;margin-top:1px;opacity:.92}
+  .actions .lbl .l2.hi{color:#B8862B;opacity:1}
   h3{margin:0 0 8px;font-size:1rem}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
   .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #f0efe9;font-size:.9rem}
@@ -267,23 +275,28 @@ function renderWallet(){
   document.getElementById('foot').innerHTML='Signed in to your phone-linked wallet on the momo-rail engine (mock MoMo adapter). Cross-border remittance (reserve now, deliver on signup), bill pay (MoMoPay / Paybill), payroll — one code path, every MTN market.';
   view.innerHTML=`
     <div class="cards">
-      <div class="bal"><div class="lab">${w.name} wallet</div><div class="amt">${fmt(w.local,w.localCurrency)} <small>${w.localCurrency}</small></div>
+      <div class="bal local"><div class="lab">${w.name} wallet</div><div class="amt">${fmt(w.local,w.localCurrency)} <small>${w.localCurrency}</small></div>
         <div class="small muted" style="margin-top:6px">MoMo: ${w.operator} · 1 USDT = ${fmt(w.rate,w.localCurrency)} ${w.localCurrency}</div></div>
-      <div class="bal usdt"><div class="lab">USDT wallet (shared)</div><div class="amt">${fmtU(w.usdt)} <small style="color:#bfe4dc">USDT</small></div>
-        <div class="small" style="margin-top:6px;color:#bfe4dc">One dollar balance, every market</div></div>
+      <div class="bal usdt"><div class="lab">USDT wallet (shared)</div><div class="amt">${fmtU(w.usdt)} <small>USDT</small></div>
+        <div class="small muted" style="margin-top:6px">One dollar balance, every market</div></div>
     </div>
     <div class="actions">
-      <button data-act="cashin"><span class="ic">📲</span>Cash in</button>
-      <button data-act="convert"><span class="ic">⇄</span>Convert</button>
-      <button data-act="cashout"><span class="ic">🏧</span>Cash out</button>
-      <button data-act="remit"><span class="ic">🌍</span>Send abroad</button>
-      <button data-act="bill"><span class="ic">🧾</span>Pay bill</button>
-      <button data-act="payroll"><span class="ic">👥</span>Payroll</button>
+      <button class="a-in" data-act="cashin"><span class="ic">📲</span>Cash in</button>
+      <button class="a-in" data-act="convert"><span class="ic">⇄</span>Convert</button>
+      <button class="a-cash" data-act="cashout"><span class="ic">🏧</span>Cash out</button>
+      <button class="a-send" data-act="remit"><span class="ic">🌍</span><span class="lbl"><span class="l1">Send Abroad</span><span class="l2">(MTN To MTN)</span></span></button>
+      <button class="a-send" data-act="remitIntl"><span class="ic">💵</span><span class="lbl"><span class="l1">Send Abroad</span><span class="l2 hi">(International Remittance)</span></span></button>
+      <button class="a-pay" data-act="bill"><span class="ic">🧾</span>Pay bill</button>
+      <button class="a-pay" data-act="payroll"><span class="ic">👥</span>Payroll</button>
     </div>
     <div class="panel"><h3>Recent activity</h3>${
       state.activity.length? state.activity.slice(0,8).map(a=>`<div class="row"><span>${a.text}</span><span class="small muted">${new Date(a.t).toLocaleTimeString()}</span></div>`).join('')
       :'<div class="muted small">Nothing yet — try a cash-in, then convert to USDT.</div>'}</div>`;
   view.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>openModal(b.dataset.act));
+  // Size each Send Abroad second line so its width matches "Send Abroad" above it.
+  view.querySelectorAll('.actions .lbl').forEach(lbl=>{const l1=lbl.querySelector('.l1'),l2=lbl.querySelector('.l2');
+    const t=l1.getBoundingClientRect().width,px=parseFloat(getComputedStyle(l2).fontSize),w=l2.getBoundingClientRect().width;
+    if(w>0)l2.style.fontSize=Math.max(7,px*t/w)+'px';});
 }
 function customerDetailHtml(c){
   const w=(c.wallets||[]).map(x=>`<div class="row"><span>${x.currency}${x.countryCode?' · '+x.countryCode:''}</span><span>${x.currency==='USDT'?fmtU(x.balance)+' USDT':fmt(x.balance,x.currency)+' '+x.currency} ${x.status==='frozen'?'<span class="pill off">frozen</span>':''}</span></div>`).join('')||'<div class="muted small">No wallets.</div>';
@@ -591,32 +604,32 @@ function openModal(a){
     act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');
       const r=await POST('/api/convert',{customer:CID,country:state.cc,direction:dir,amount:v});
       okmsg(`Converted — you received ${dir==='local_to_usdt'?fmtU(r.quote.net)+' USDT':fmt(r.quote.net,w.localCurrency)+' '+w.localCurrency}.`);setTimeout(close,1100);});}
-  if(a==='remit'){
-    const opcoOpts=state.markets.map(m=>`<option value="o:${m.code}"${m.code!==state.cc?' selected':''}>${m.name} · ${m.ccy}</option>`).join('');
-    const intlOpts=INTL_COUNTRIES.map(c=>`<option value="i:${c.dial}:${c.code}">${c.name} (+${c.dial})</option>`).join('');
-    shell('Send abroad — reserve &amp; deliver',`<label>Destination</label>
-      <select id="dc" class="inp"><optgroup label="MoMo markets — delivered in local currency">${opcoOpts}</optgroup><optgroup label="International — delivered in USDT">${intlOpts}</optgroup></select>
-      <div id="rtype" style="display:none"><label>Recipient</label><div class="seg"><button class="on" data-r="person">Person (C2C)</button><button data-r="business">Business (C2B)</button></div></div>
+  if(a==='remit'||a==='remitIntl'){
+    const intlMode=a==='remitIntl';
+    const sel=intlMode
+      ? `<select id="dc" class="inp">${INTL_COUNTRIES.map(c=>`<option value="i:${c.dial}:${c.code}">${c.name} (+${c.dial})</option>`).join('')}</select>`
+      : `<select id="dc" class="inp">${state.markets.map(m=>`<option value="o:${m.code}"${m.code!==state.cc?' selected':''}>${m.name} · ${m.ccy}</option>`).join('')}</select>`;
+    const hint=intlMode?'International recipients receive USDT (no local conversion).':'They receive local currency at the destination market rate.';
+    shell(intlMode?'Send abroad — International remittance (USDT)':'Send abroad — MTN to MTN',`<label>Destination</label>${sel}
+      ${intlMode?`<div id="rtype"><label>Recipient</label><div class="seg"><button class="on" data-r="person">Person (C2C)</button><button data-r="business">Business (C2B)</button></div></div>`:''}
       <label>Recipient number</label><input id="dn" placeholder="phone">
       <label>Amount (USDT)</label><input id="amt" inputmode="decimal" placeholder="50">
-      <div class="quote" id="q"><div class="muted small">Pick a destination and amount for a live quote.</div></div>
-      <div class="small muted" style="margin-top:8px">Reserved from your USDT now and delivered when the recipient signs in — even if they aren't registered yet. International recipients receive USDT.</div>
+      <div class="quote" id="q"><div class="muted small">${hint}</div></div>
+      <div class="small muted" style="margin-top:8px">Reserved from your USDT now and delivered when the recipient signs in — even if they aren't registered yet.</div>
       <div id="err"></div><button class="btn" id="go">Reserve &amp; send</button>`);
     const dc=document.getElementById('dc'),amt=document.getElementById('amt'),rt=document.getElementById('rtype');
     let rtype='person';
-    const isIntl=()=>dc.value.startsWith('i:');
     const quote=()=>{const v=+amt.value,q=document.getElementById('q');
-      rt.style.display=isIntl()?'block':'none';
-      if(!(v>0)){q.innerHTML='<div class="muted small">Pick a destination and amount for a live quote.</div>';return;}
-      if(isIntl()){const fe=v*0.02,net=v-fe;
+      if(!(v>0)){q.innerHTML=`<div class="muted small">${hint}</div>`;return;}
+      if(intlMode){const fe=v*0.02,net=v-fe;
         q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Outbound fee (2%)</span><span>${fmtU(fe)} USDT</span></div><div class="qr tot"><span>They receive</span><span>${fmtU(net)} USDT</span></div>`;
       }else{const m=state.markets.find(x=>x.code===dc.value.slice(2));if(!m){q.innerHTML='';return;}
         const g=v*+m.rate,fe=g*0.02,net=g-fe;
         q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(m.rate,m.ccy)} ${m.ccy}</span></div><div class="qr"><span>Remittance fee (2%)</span><span>${fmt(fe,m.ccy)} ${m.ccy}</span></div><div class="qr tot"><span>They receive</span><span>${fmt(net,m.ccy)} ${m.ccy}</span></div>`;}};
     dc.onchange=quote;amt.oninput=quote;
-    rt.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{rt.querySelectorAll('.seg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');rtype=b.dataset.r;});
+    if(rt)rt.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{rt.querySelectorAll('.seg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');rtype=b.dataset.r;});
     act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');const num=document.getElementById('dn').value;
-      if(isIntl()){const dial=dc.value.split(':')[1];const msisdn=dial+String(num).replace(/\D/g,'').replace(/^0+/,'');
+      if(intlMode){const dial=dc.value.split(':')[1];const msisdn=dial+String(num).replace(/\D/g,'').replace(/^0+/,'');
         if(!String(num).replace(/\D/g,''))throw new Error('Enter the recipient number.');
         const r=await POST('/api/remit/send-intl',{customer:CID,destMsisdn:msisdn,amountUsdt:v,recipientType:rtype});
         okmsg(`Reserved ${fmtU(v)} USDT for +${r.claim.destMsisdn} (${r.claim.recipientType}). They receive ${fmtU(r.estimate.net)} USDT on sign-in. Code ${r.claim.code}`);setTimeout(close,2400);
