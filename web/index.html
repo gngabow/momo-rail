@@ -138,6 +138,7 @@ async function refresh(){ if(ADMIN){renderAdmin();return;} if(TOKEN&&ME){ if(ME.
 // A non-Opco number (international format, code not one of our markets) → USDT-only account.
 function classifyNumber(selectedOpco, typed){
   const digits=(typed||'').replace(/\D/g,'').replace(/^0+/,'');
+  if(selectedOpco==='INTL') return {intl:true,msisdn:digits};
   if(/^\s*(\+|00)/.test(typed)){
     const match=state.markets.map(m=>m.dial).filter(d=>digits.startsWith(d)).sort((a,b)=>b.length-a.length)[0];
     if(match){ const m=state.markets.find(x=>x.dial===match); return {intl:false,country:m.code,national:digits.slice(match.length)}; }
@@ -156,13 +157,14 @@ function renderGate(){
   const enabled=state.markets.filter(m=>m.enabled);
   if(!enabled.length){ view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0"><h3>No markets are live</h3><div class="small muted">An operator needs to enable a market from the ops console before customers can sign in.</div><div id="gadmin" style="margin-top:18px;background:var(--brand2);color:#fff;border-radius:10px;padding:13px 14px;text-align:center;font-weight:800;cursor:pointer">Ops team? Admin sign-in →</div></div>`; document.getElementById('gadmin').onclick=e=>{e.preventDefault();adminLogin();}; return; }
   if(!enabled.find(m=>m.code===state.cc)) state.cc=enabled[0].code;
-  const opts=enabled.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('');
+  const opts=enabled.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('')
+    +`<option value="INTL">🌍 International (other country)</option>`;
   view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0">
     <h3>Sign in to your wallet</h3>
-    <div class="small muted">Choose your country and enter your MoMo number — we'll send a one-time code. Sending from abroad? Enter your full number with country code (e.g. +44…).</div>
+    <div class="small muted">Pick your country and enter your MoMo number — we'll send a one-time code. Sending from outside these markets (an employer or remitter)? Choose <b>🌍 International</b> and enter your full number with country code.</div>
     <label>Country</label>
     <div class="fieldbox"><span class="fi" id="gcflag"></span><select id="gc">${opts}</select><span class="chev">▾</span></div>
-    <label>MoMo number</label>
+    <label id="gnlabel">MoMo number</label>
     <div class="fieldbox"><span class="fi" id="gnflag"></span><span class="prefix" id="gdial">+</span><input id="gn" inputmode="numeric" placeholder="712 345 678"></div>
     <div id="err"></div>
     <button class="btn" id="ggo">Send code</button>
@@ -170,13 +172,23 @@ function renderGate(){
   </div>`;
   const gc=document.getElementById('gc');
   const syncFlag=()=>{
+    const gcf=document.getElementById('gcflag'),gnf=document.getElementById('gnflag');
+    if(gc.value==='INTL'){
+      gcf.className=''; gcf.textContent='🌍'; gnf.className=''; gnf.textContent='🌍';
+      document.getElementById('gdial').textContent='+';
+      document.getElementById('gn').placeholder='44 7911 123456';
+      document.getElementById('gnlabel').textContent='Your phone number (with country code)';
+      return;
+    }
     const code=gc.value.toLowerCase(); const m=enabled.find(x=>x.code===gc.value);
-    document.getElementById('gcflag').className='fi fi-'+code;
-    document.getElementById('gnflag').className='fi fi-'+code;
+    gcf.textContent=''; gnf.textContent='';
+    gcf.className='fi fi-'+code; gnf.className='fi fi-'+code;
     document.getElementById('gdial').textContent='+'+(m?m.dial:'');
+    document.getElementById('gn').placeholder='712 345 678';
+    document.getElementById('gnlabel').textContent='MoMo number';
   };
   gc.value=state.cc; syncFlag();
-  gc.onchange=()=>{ state.cc=gc.value; syncFlag(); };
+  gc.onchange=()=>{ if(gc.value!=='INTL') state.cc=gc.value; syncFlag(); };
   document.getElementById('ggo').onclick=async()=>{
     const typed=document.getElementById('gn').value.trim();
     if(!typed)return err('Enter your number.');
