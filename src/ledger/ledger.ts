@@ -18,7 +18,9 @@ export type AccountType =
   | 'system_local_float'
   | 'system_fee_revenue'
   | 'system_usdt_hot_wallet'
-  | 'system_suspense';
+  | 'system_suspense'
+  | 'system_remittance_escrow'
+  | 'system_biller';
 
 export interface Account {
   id: string;

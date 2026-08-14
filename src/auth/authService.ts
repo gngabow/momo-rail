@@ -29,9 +29,20 @@ export function customerIdFor(country: string, msisdn: string): string {
 
 export class AuthService {
   private otps = new Map<string, { code: string; expiresAt: number; attempts: number }>();
-  private sessions = new Map<string, Session>();
+  private revoked = new Set<string>();
+  private readonly secret: Buffer;
 
-  constructor(private readonly registry: CountryRegistry) {}
+  constructor(private readonly registry: CountryRegistry) {
+    // Stateless HMAC-signed sessions: survive a restart when AUTH_SECRET is set
+    // (no session store, no async lookup on the hot path).
+    const s = process.env.AUTH_SECRET;
+    if (s) { this.secret = Buffer.from(s); }
+    else { this.secret = crypto.randomBytes(32); console.warn('[auth] AUTH_SECRET not set — sessions will reset on restart'); }
+  }
+
+  private sign(payload: string): string {
+    return crypto.createHmac('sha256', this.secret).update(payload).digest('base64url');
+  }
 
   private otpKey(country: string, msisdn: string): string { return `${country.toUpperCase()}:${msisdn}`; }
 
@@ -76,22 +87,29 @@ export class AuthService {
   }
 
   private issue(subject: string, kind: SessionKind): string {
-    const token = crypto.randomBytes(24).toString('hex');
-    const now = Date.now();
-    this.sessions.set(token, { token, subject, kind, createdAt: now, expiresAt: now + SESSION_TTL_MS });
-    return token;
+    const exp = Date.now() + SESSION_TTL_MS;
+    const payload = Buffer.from(JSON.stringify({ sub: subject, kind, exp })).toString('base64url');
+    return `${payload}.${this.sign(payload)}`;
   }
 
-  /** Resolve a bearer token to a live session (or undefined). */
+  /** Resolve a bearer token to a live session (or undefined). Verifies the HMAC
+   * and expiry; honours in-process revocation (logout). */
   resolve(token: string | undefined | null): Session | undefined {
-    if (!token) return undefined;
-    const s = this.sessions.get(token);
-    if (!s) return undefined;
-    if (Date.now() > s.expiresAt) { this.sessions.delete(token); return undefined; }
-    return s;
+    if (!token || this.revoked.has(token)) return undefined;
+    const dot = token.indexOf('.');
+    if (dot <= 0) return undefined;
+    const payload = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expect = this.sign(payload);
+    const a = Buffer.from(sig), b = Buffer.from(expect);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return undefined;
+    let p: any;
+    try { p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return undefined; }
+    if (!p || typeof p.exp !== 'number' || Date.now() > p.exp) return undefined;
+    return { token, subject: String(p.sub), kind: p.kind as SessionKind, createdAt: 0, expiresAt: p.exp };
   }
 
-  logout(token: string | undefined | null): void { if (token) this.sessions.delete(token); }
+  logout(token: string | undefined | null): void { if (token) this.revoked.add(token); }
 }
 
 export class AuthError extends Error {}

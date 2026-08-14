@@ -39,8 +39,12 @@ export async function bootstrap(ledgerImpl?: LedgerStore): Promise<{ ledger: Led
     await ensure(p.ledgerAccounts.localFloatId, p.localCurrency, 'system_local_float', p.code);
     await ensure(p.ledgerAccounts.localFeeRevenueId, p.localCurrency, 'system_fee_revenue', p.code);
     await ensure(`sys-${p.localCurrency}-suspense`, p.localCurrency, 'system_suspense', p.code);
+    await ensure(`sys-${p.localCurrency}-biller`, p.localCurrency, 'system_biller', p.code);
     registry.upsert(p);
   }
+
+  // Shared USDT remittance escrow (holds reserved funds until the recipient claims).
+  await ensure('sys-USDT-remit-escrow', 'USDT', 'system_remittance_escrow', null);
 
   return { ledger, registry, profiles };
 }

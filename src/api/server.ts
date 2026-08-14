@@ -17,6 +17,12 @@ import { PgPendingSink } from '../rail/pgPending';
 import { AuthService, AuthError } from '../auth/authService';
 import { OpsService, InMemoryOverrideStore, ProfileOverrideStore } from '../ops/opsService';
 import { PgOverrideStore } from '../ops/pgOverrideStore';
+import { ClaimStore } from '../remittance/claimStore';
+import { PgClaimSink } from '../remittance/pgClaimSink';
+import { RemittanceService } from '../remittance/remittanceService';
+import { BillerService } from '../billers/billerService';
+import { toMsisdn } from '../context/phone';
+import crypto from 'crypto';
 
 /**
  * HTTP server (Node's built-in `http`) that puts the tested momo-rail engine
@@ -37,6 +43,8 @@ let rail: RailService;
 let payroll: PayrollService;
 let auth: AuthService;
 let ops: OpsService;
+let remit: RemittanceService;
+let billers: BillerService;
 const rates: Record<string, string> = {};
 
 function makeStore(): LedgerStore {
@@ -157,7 +165,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/auth/verify-otp' && req.method === 'POST') {
       const b = await readBody(req);
-      return send(res, 200, auth.verifyOtp(String(b.country || 'UG'), String(b.national || ''), String(b.code || '')));
+      const country = String(b.country || 'UG');
+      const v = auth.verifyOtp(country, String(b.national || ''), String(b.code || ''));
+      // reserve-now, deliver-on-signup: hand over anything reserved for this number.
+      const delivered = await remit.claimAllFor(country, v.msisdn, v.customerId);
+      return send(res, 200, { ...v, claimed: delivered.map((d) => d.delivered) });
     }
     if (p === '/api/auth/logout' && req.method === 'POST') {
       auth.logout(bearer(req));
@@ -196,9 +208,30 @@ const server = http.createServer(async (req, res) => {
       return send(res, 404, { error: 'unknown admin route' });
     }
 
+    // ---- Remittance (invite / claim) — reads ----
+    if (p === '/api/remit/outbox') {
+      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      return send(res, 200, remit.outboxFor(cid));
+    }
+    if (p === '/api/remit/inbox') {
+      const country = String(q.get('country') || 'UG');
+      const profile = registry.require(country);
+      const msisdn = toMsisdn(profile, String(q.get('national') || ''));
+      return send(res, 200, remit.inboxFor(country, msisdn));
+    }
+    if (p === '/api/billers') {
+      return send(res, 200, billers.list(q.get('country') ? String(q.get('country')) : undefined));
+    }
+
     // MoMo provider callback — MTN posts the terminal state here (X-Callback-Url).
     // Settles the matching in-flight deposit/withdraw exactly once.
     if (p.startsWith('/api/momo/callback/') && req.method === 'POST') {
+      const secret = process.env.MOMO_CALLBACK_SECRET;
+      if (secret) {
+        const provided = String(req.headers['x-callback-secret'] || '');
+        const a = Buffer.from(provided), bb = Buffer.from(secret);
+        if (a.length !== bb.length || !crypto.timingSafeEqual(a, bb)) return send(res, 401, { error: 'bad callback signature' });
+      }
       const body = await readBody(req);
       const ref = String(body.externalId ?? body.referenceId ?? '');
       const raw = String(body.status ?? '').toUpperCase();
@@ -261,6 +294,21 @@ const server = http.createServer(async (req, res) => {
         logAct(cid, `Payroll — paid ${r.paid}${r.failed ? `, ${r.failed} failed` : ''}`, r.failed ? 'neg' : 'pos');
         return send(res, 200, { result: r, wallet: await balances(cid, country) });
       }
+      if (p === '/api/remit/send') {
+        const r = await remit.send({ senderCustomerId: cid, destCountry: String(b.destCountry || 'UG'), destNational: String(b.destNational || ''), amountUsdt: String(b.amountUsdt) });
+        logAct(cid, `Sent ${b.amountUsdt} USDT → +${r.claim.destMsisdn} · reserved (code ${r.claim.code})`, 'neg');
+        return send(res, 200, { claim: r.claim, estimate: r.estimate, wallet: await balances(cid, country) });
+      }
+      if (p === '/api/remit/claim') {
+        const r = await remit.claim(String(b.idOrCode || b.claimId || b.code || ''), cid);
+        logAct(cid, `Claimed remittance — received ${r.delivered.amount} ${r.delivered.currency}`, 'pos');
+        return send(res, 200, { claim: r.claim, delivered: r.delivered, wallet: await balances(cid, r.claim.destCountry) });
+      }
+      if (p === '/api/bill/pay') {
+        const rc = await billers.pay({ customerId: cid, billerCode: String(b.billerCode || ''), amount: String(b.amount) });
+        logAct(cid, `Paid ${rc.amount} ${rc.currency} — ${rc.billerName}`, 'neg');
+        return send(res, 200, { receipt: rc, wallet: await balances(cid, country) });
+      }
     }
 
     send(res, 404, { error: 'Not found' });
@@ -299,6 +347,20 @@ async function start() {
   const applied = await ops.loadOverrides();
   if (applied) console.log(`momo-rail: applied ${applied} ops override(s)`);
   auth = new AuthService(registry);
+
+  // Remittance (invite/claim) with durable reservations, and bill pay / MoMoPay.
+  let claims: ClaimStore;
+  if (url) {
+    const sink = new PgClaimSink(url);
+    await sink.init();
+    claims = new ClaimStore(sink);
+    const n = await claims.hydrate();
+    if (n) console.log(`momo-rail: hydrated ${n} reserved remittance claim(s)`);
+  } else {
+    claims = new ClaimStore();
+  }
+  remit = new RemittanceService(ledger, registry, fx, claims);
+  billers = new BillerService(ledger, registry);
 
   for (const pr of registry.list()) {
     if (!rates[pr.localCurrency]) rates[pr.localCurrency] = await fx.getLocalPerUsdt(pr.localCurrency);

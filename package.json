@@ -13,6 +13,8 @@
     "verify": "ts-node -T tests/verify.ts",
     "verify:async": "ts-node -T tests/verify-async.ts",
     "verify:auth": "ts-node -T tests/verify-auth.ts",
+    "verify:remit": "ts-node -T tests/verify-remit.ts",
+    "verify:all": "npm run verify && npm run verify:async && npm run verify:auth && npm run verify:remit",
     "demo": "ts-node -T src/demo.ts",
     "momo:provision": "ts-node -T scripts/provision-momo-sandbox.ts",
     "db:migrate": "ts-node -T scripts/db-migrate.ts",

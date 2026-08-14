@@ -78,9 +78,9 @@ across MTN's markets, only credentials/target-environment differ.
   (OAuth + token cache, Collections `requesttopay`, Disbursements `transfer`,
   status poll, account balance), sandbox provisioning, callback settlement, and
   a config-only mock→live flip are all built and tested.
-- Product breadth: inbound/outbound remittance, MoMoPay, agents — country-flagged.
-  (**Payroll via MoMo Disbursements is already built** — `src/payroll/payrollService.ts`,
-  bulk payout from an employer's local wallet to many workers' MoMo, tested.)
+- ~~Product breadth: inbound/outbound remittance, MoMoPay, agents.~~ **Payroll,
+  cross-border remittance (invite/claim), and bill pay / MoMoPay are built** —
+  see "Money rails" below. Agents remain future work.
 - Per-market liquidity/treasury + FX feeds; ops console with a market switcher.
 - Auth/OTP and production hardening.
 
@@ -154,6 +154,31 @@ idempotent.
 > in the durable ledger's suspense account, but the pending→reference mapping is
 > lost on a restart mid-flight (recoverable via the status-poll endpoint).
 > Persisting that map is a small follow-up.
+
+## Money rails
+
+Beyond deposit/convert/withdraw, the rail carries the pan-African money-movement
+products, all on the one ledger:
+
+- **Payroll** (`src/payroll`) — bulk MoMo disbursement, employer local wallet →
+  many workers.
+- **Cross-border remittance with invite/claim** (`src/remittance`) — the sender's
+  USDT is **reserved into escrow immediately**; the recipient is just a phone
+  number that need not be registered. They **claim** it (by code, or
+  automatically the moment they sign in — "reserve now, deliver on signup"), and
+  it's converted to their local currency at the destination market's rate and
+  remittance fee. Reservations are durable (Postgres) so escrow is never
+  stranded. `POST /api/remit/send`, `/api/remit/claim`, `GET /api/remit/inbox|outbox`.
+- **Bill pay / MoMoPay** (`src/billers`) — pay a biller or merchant from the local
+  wallet; the market's `merchantModel` labels it (MoMoPay for MTN, Paybill/Till
+  for Kenya). `GET /api/billers`, `POST /api/bill/pay`.
+
+Proven by `tests/verify-remit.ts` (escrow holds, cross-currency delivery,
+double-claim rejected, bill pay). Run everything: `npm run verify:all`.
+
+The **portal** (`web/index.html`) surfaces all of it: phone+OTP sign-in,
+Send-abroad and Pay-bill actions, and an **admin tab** — a writing ops console
+that toggles markets, edits fees, and flips adapters live.
 
 ## Auth & the ops console
 

@@ -10,10 +10,12 @@
         --line:#E6E3DA;--bg:#F6F5F0;--card:#FFFFFF;--ok:#0F7B52;--bad:#B23A3A;--ice:#E7F1EF;}
   *{box-sizing:border-box;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   body{margin:0;background:var(--bg);color:var(--ink)}
-  .top{background:var(--brand2);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .top{background:var(--brand2);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .brand{font-weight:800;font-size:1.05rem}.brand .swap{color:var(--gold)}
   .tag{font-size:.62rem;background:#11534b;color:#bfe4dc;padding:2px 8px;border-radius:20px;margin-left:6px}
   .top .spacer{flex:1}
+  .lnk{background:transparent;border:1px solid #1c5f56;color:#cfe7e1;border-radius:8px;padding:6px 11px;cursor:pointer;font-weight:600;font-size:.85rem}
+  .lnk:hover{background:#0e463f}
   .csel{display:flex;align-items:center;gap:8px;background:#0e463f;border:1px solid #1c5f56;border-radius:10px;padding:5px 10px}
   .csel .fi{width:24px;height:18px;border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
   .csel select{background:transparent;color:#fff;border:none;font-size:.9rem;outline:none}
@@ -29,11 +31,11 @@
   .bal .amt small{font-size:.9rem;color:var(--muted);font-weight:600}
   .bal.usdt{background:linear-gradient(135deg,#0F5B52,#0A3B36);color:#fff;border:none}
   .bal.usdt .lab{color:#bfe4dc}
-  .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+  .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
   .actions button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:14px 8px;cursor:pointer;font-weight:700;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:6px}
   .actions button:hover{border-color:var(--brand);color:var(--brand)}.actions .ic{font-size:1.3rem}
   h3{margin:0 0 8px;font-size:1rem}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
   .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #f0efe9;font-size:.9rem}
   .row:first-child{border-top:none}.muted{color:var(--muted)}.small{font-size:.8rem}
   table{width:100%;border-collapse:collapse;font-size:.86rem}
@@ -41,12 +43,13 @@
   th{color:var(--muted);font-weight:600;font-size:.76rem;text-transform:uppercase}
   td .fi{width:22px;height:16px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1)}
   .pill{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--ice);color:var(--brand)}
-  .pill.cfg{background:#FFF6E5;color:#8A5A00}
+  .pill.cfg{background:#FFF6E5;color:#8A5A00}.pill.off{background:#FBE9E9;color:#B23A3A}
+  .pill.res{background:#FFF6E5;color:#8A5A00}.pill.cl{background:#E7F4EC;color:#0F7B52}
   .backdrop{position:fixed;inset:0;background:rgba(10,20,25,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
-  .modal{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .modal{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.25);max-height:92vh;overflow:auto}
   .modal h3{font-size:1.15rem}
   label{display:block;font-size:.82rem;color:var(--muted);margin:10px 0 4px}
-  input,.seg{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:1rem}
+  input,select.inp,.seg{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:1rem;background:#fff}
   .seg{display:flex;gap:6px;padding:4px}
   .seg button{flex:1;border:none;background:transparent;padding:8px;border-radius:8px;font-weight:700;color:var(--muted);cursor:pointer}
   .seg button.on{background:var(--brand);color:#fff}
@@ -61,6 +64,8 @@
   .payrow{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-bottom:6px}
   .payrow input{padding:8px}.payrow button{border:none;background:#f0efe9;border-radius:8px;padding:0 10px;cursor:pointer}
   .foot{max-width:960px;margin:8px auto 30px;padding:0 16px;color:var(--muted);font-size:.75rem;line-height:1.5}
+  .aedit{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
+  .switch{display:inline-block}
   @media(max-width:640px){.actions{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:1fr}}
 </style>
 </head>
@@ -68,10 +73,15 @@
 <div class="top">
   <div class="brand">One-In-All Rail <span class="swap">⇄</span> <span class="tag" id="modeTag">live API</span></div>
   <div class="spacer"></div>
+  <div id="authbox"></div>
   <div class="csel"><span class="fi" id="topFlag"></span><select id="country"></select></div>
 </div>
 <div class="wrap">
-  <div class="tabs"><button class="on" data-view="wallet">My Wallet</button><button data-view="ops">Ops · Markets</button></div>
+  <div class="tabs">
+    <button class="on" data-view="wallet">My Wallet</button>
+    <button data-view="ops">Ops · Markets</button>
+    <button data-view="admin">Admin</button>
+  </div>
   <div id="view"><div class="panel muted">Loading…</div></div>
 </div>
 <div class="foot" id="foot"></div>
@@ -82,12 +92,19 @@ const scaleOf=c=>SCALE0.has(c)?0:2;
 const fmt=(n,ccy)=>Number(n).toLocaleString('en-US',{minimumFractionDigits:scaleOf(ccy),maximumFractionDigits:scaleOf(ccy)});
 const fmtU=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-// stable per-browser customer id
+// stable per-browser id (used when signed out), plus optional auth session
 let CID=localStorage.getItem('momo_cid');
 if(!CID){CID='c-'+Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem('momo_cid',CID);}
+let TOKEN=localStorage.getItem('momo_tok')||'';
+let ADMIN=localStorage.getItem('momo_admin')||'';
+let ME=JSON.parse(localStorage.getItem('momo_me')||'null');
 
-const state={cc:'UG',view:'wallet',markets:[],wallet:null,activity:[]};
-async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;}
+const state={cc:'UG',view:'wallet',markets:[],wallet:null,activity:[],admin:[]};
+async function api(path,opts){opts=opts||{};const headers=Object.assign({},opts.headers);
+  if(TOKEN&&!headers.Authorization)headers.Authorization='Bearer '+TOKEN;
+  const r=await fetch(path,Object.assign({},opts,{headers}));const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;}
+const POST=(path,body,headers)=>api(path,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},headers||{}),body:JSON.stringify(body)});
 
 async function loadMarkets(){
   state.markets=await api('/api/markets');
@@ -99,12 +116,18 @@ async function loadWallet(){ state.wallet=await api(`/api/wallet?customer=${CID}
 async function loadActivity(){ state.activity=await api(`/api/activity?customer=${CID}`); }
 
 const view=document.getElementById('view');
-async function refresh(){ await loadWallet(); await loadActivity(); render(); }
+async function refresh(){ if(state.view==='admin'){renderAuth();render();return;} await loadWallet(); await loadActivity(); renderAuth(); render(); }
 function render(){
   document.getElementById('country').value=state.cc;
   document.getElementById('topFlag').className='fi fi-'+state.cc.toLowerCase();
-  document.getElementById('foot').innerHTML='Live demo wired to the momo-rail engine (mock MoMo adapter, in-memory — resets on restart). Per-market FX + 1.5% convert fee, per-currency scale, one shared USDT wallet. Your balances are keyed to this browser.';
-  (state.view==='ops'?renderOps:renderWallet)();
+  document.getElementById('foot').innerHTML='Live demo wired to the momo-rail engine (mock MoMo adapter). Phone+OTP sign-in, cross-border remittance with reserve-now/deliver-on-signup, bill pay (MoMoPay / Paybill), and a writing admin console — one code path, every MTN market.';
+  ({wallet:renderWallet,ops:renderOps,admin:renderAdmin}[state.view])();
+}
+function renderAuth(){
+  const el=document.getElementById('authbox');
+  if(TOKEN&&ME){el.innerHTML=`<span class="small" style="color:#bfe4dc">📱 +${ME.msisdn}</span> <button class="lnk" id="so">Sign out</button>`;
+    el.querySelector('#so').onclick=signOut;}
+  else{el.innerHTML=`<button class="lnk" id="si">Sign in</button>`;el.querySelector('#si').onclick=openSignin;}
 }
 function renderWallet(){
   const w=state.wallet; if(!w){view.innerHTML='<div class="panel muted">Loading…</div>';return;}
@@ -116,9 +139,11 @@ function renderWallet(){
         <div class="small" style="margin-top:6px;color:#bfe4dc">One dollar balance, every market</div></div>
     </div>
     <div class="actions">
-      <button data-act="cashin"><span class="ic">📲</span>Cash in (MoMo)</button>
+      <button data-act="cashin"><span class="ic">📲</span>Cash in</button>
       <button data-act="convert"><span class="ic">⇄</span>Convert</button>
-      <button data-act="cashout"><span class="ic">🏧</span>Send / Cash out</button>
+      <button data-act="cashout"><span class="ic">🏧</span>Cash out</button>
+      <button data-act="remit"><span class="ic">🌍</span>Send abroad</button>
+      <button data-act="bill"><span class="ic">🧾</span>Pay bill</button>
       <button data-act="payroll"><span class="ic">👥</span>Payroll</button>
     </div>
     <div class="panel"><h3>Recent activity</h3>${
@@ -134,6 +159,51 @@ function renderOps(){
       ${state.markets.map(m=>`<tr><td><span class="fi fi-${m.code.toLowerCase()}"></span></td><td>${m.name}</td><td>${m.ccy}</td><td>${fmt(m.rate,m.ccy)}</td><td class="small muted">${m.op}</td><td><span class="pill ${m.tested?'':'cfg'}">${m.tested?'wired':'config-ready'}</span></td></tr>`).join('')}
       </tbody></table></div>`;
 }
+async function renderAdmin(){
+  if(!ADMIN){
+    view.innerHTML=`<div class="panel" style="max-width:420px"><h3>Ops console — admin sign-in</h3>
+      <div class="small muted">Set ADMIN_USERNAME / ADMIN_PASSWORD on the server to enable.</div>
+      <label>Username</label><input id="au" placeholder="admin">
+      <label>Password</label><input id="ap" type="password" placeholder="••••••••">
+      <div id="err"></div><button class="btn" id="go">Sign in</button></div>`;
+    document.getElementById('go').onclick=async e=>{try{
+      const r=await POST('/api/admin/login',{username:document.getElementById('au').value,password:document.getElementById('ap').value});
+      ADMIN=r.token;localStorage.setItem('momo_admin',ADMIN);renderAdmin();
+    }catch(err){document.getElementById('err').innerHTML=`<div class="msg err">${err.message}</div>`;}};
+    return;
+  }
+  let markets;
+  try{ markets=await api('/api/admin/markets',{headers:{Authorization:'Bearer '+ADMIN}}); }
+  catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return renderAdmin(); }
+  state.admin=markets;
+  view.innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Writing ops console</h3><button class="lnk" id="alo" style="border-color:var(--line);color:var(--muted)">Sign out admin</button></div>
+    <div class="small muted" style="margin-bottom:8px">Edits take effect on the live rail immediately and persist.</div>
+    <table><thead><tr><th>Market</th><th>Adapter</th><th>Convert fee</th><th>Enabled</th><th></th></tr></thead><tbody>
+    ${markets.map(m=>`<tr data-code="${m.code}">
+      <td><span class="fi fi-${m.code.toLowerCase()}"></span> ${m.code} · ${m.ccy}</td>
+      <td><select class="inp pk" style="padding:6px"><option value="momo_mock"${m.providerKey==='momo_mock'?' selected':''}>mock</option><option value="momo"${m.providerKey==='momo'?' selected':''}>live MTN</option></select></td>
+      <td><input class="fee" style="width:80px;padding:6px" value="${m.feeSchedule.convertRate}"></td>
+      <td><input type="checkbox" class="en"${m.enabled?' checked':''}></td>
+      <td><button class="lnk save" style="border-color:var(--brand);color:var(--brand)">Save</button></td>
+    </tr>`).join('')}
+    </tbody></table><div id="err"></div></div>`;
+  document.getElementById('alo').onclick=()=>{ADMIN='';localStorage.removeItem('momo_admin');renderAdmin();};
+  view.querySelectorAll('tr[data-code]').forEach(tr=>{
+    tr.querySelector('.save').onclick=async()=>{
+      const code=tr.dataset.code;
+      try{ await POST('/api/admin/market/'+code,{
+          enabled:tr.querySelector('.en').checked,
+          providerKey:tr.querySelector('.pk').value,
+          feeSchedule:{convertRate:parseFloat(tr.querySelector('.fee').value)}
+        },{Authorization:'Bearer '+ADMIN});
+        tr.querySelector('.save').textContent='Saved ✓';setTimeout(()=>tr.querySelector('.save').textContent='Save',1200);
+        if(code===state.cc){await loadMarkets();}
+      }catch(e){document.getElementById('err').innerHTML=`<div class="msg err">${e.message}</div>`;}
+    };
+  });
+}
+
 const root=document.getElementById('modalRoot');
 function close(){root.innerHTML='';}
 function shell(title,inner){root.innerHTML=`<div class="backdrop"><div class="modal"><h3>${title}</h3>${inner}<button class="btn sec" id="mClose">Close</button></div></div>`;
@@ -142,15 +212,46 @@ function err(t){const e=document.getElementById('err');if(e)e.innerHTML=`<div cl
 function okmsg(t){const e=document.getElementById('err');if(e)e.innerHTML=`<div class="msg ok">${t}</div>`;}
 async function act(btnId, fn){const b=document.getElementById(btnId);if(!b)return;b.onclick=async()=>{b.disabled=true;try{await fn();await refresh();}catch(e){err(e.message);b.disabled=false;}};}
 
+// ---- Sign in (phone + OTP) ----
+function openSignin(){
+  const opts=state.markets.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('');
+  shell('Sign in',`<label>Country</label><select id="sc" class="inp">${opts}</select>
+    <label>Your MoMo number</label><input id="sn" placeholder="712345678">
+    <div id="err"></div><button class="btn" id="go">Send code</button>`);
+  document.getElementById('go').onclick=async()=>{
+    const country=document.getElementById('sc').value, national=document.getElementById('sn').value.trim();
+    if(!national)return err('Enter your number.');
+    try{ const r=await POST('/api/auth/request-otp',{country,national});
+      askCode(country,national,r.devCode);
+    }catch(e){err(e.message);}
+  };
+}
+function askCode(country,national,devCode){
+  shell('Enter the code',`<div class="small muted">We sent a 6-digit code${devCode?` (demo: <b>${devCode}</b>)`:''}.</div>
+    <label>Code</label><input id="oc" inputmode="numeric" maxlength="6" placeholder="••••••" value="${devCode||''}">
+    <div id="err"></div><button class="btn" id="go">Verify</button>`);
+  document.getElementById('go').onclick=async()=>{
+    try{ const v=await POST('/api/auth/verify-otp',{country,national,code:document.getElementById('oc').value.trim()});
+      TOKEN=v.token;ME={country,national,msisdn:v.msisdn};
+      localStorage.setItem('momo_tok',TOKEN);localStorage.setItem('momo_me',JSON.stringify(ME));
+      state.cc=country;
+      const got=(v.claimed||[]).reduce((s,c)=>s+Number(c.amount),0);
+      close();await refresh();
+      if(v.claimed&&v.claimed.length){ shell('Welcome — funds delivered',`<div class="msg ok">You had money waiting: ${v.claimed.map(c=>fmt(c.amount,c.currency)+' '+c.currency).join(', ')} delivered to your wallet.</div>`); }
+    }catch(e){err(e.message);}
+  };
+}
+async function signOut(){ try{await POST('/api/auth/logout',{});}catch(e){} TOKEN='';ME=null;localStorage.removeItem('momo_tok');localStorage.removeItem('momo_me');await refresh(); }
+
 function openModal(a){
-  const w=state.wallet, m=state.markets.find(x=>x.code===state.cc);
+  const w=state.wallet;
   if(a==='cashin'){shell(`Cash in — ${w.name} MoMo`,`<label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="${w.localCurrency==='UGX'?'100000':'2000'}"><div class="small muted" style="margin-top:8px">Simulates a MoMo collection (request-to-pay) from ${w.operator}.</div><div id="err"></div><button class="btn" id="go">Approve MoMo prompt</button>`);
     act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter a valid amount.');
-      const r=await api('/api/deposit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,amount:v})});
+      await POST('/api/deposit',{customer:CID,country:state.cc,amount:v});
       okmsg(`Received ${fmt(v,w.localCurrency)} ${w.localCurrency}.`);setTimeout(close,900);});}
-  if(a==='cashout'){shell(`Send / Cash out — ${w.name}`,`<label>Recipient MoMo number</label><input id="ph" placeholder="+${w.dial} …"><label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="1000"><div class="small muted" style="margin-top:8px">Simulates a MoMo disbursement (B2C payout).</div><div id="err"></div><button class="btn" id="go">Send</button>`);
+  if(a==='cashout'){shell(`Cash out — ${w.name}`,`<label>Recipient MoMo number</label><input id="ph" placeholder="+${w.dial} …"><label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="1000"><div class="small muted" style="margin-top:8px">Simulates a MoMo disbursement (B2C payout).</div><div id="err"></div><button class="btn" id="go">Send</button>`);
     act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter a valid amount.');
-      await api('/api/withdraw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,national:document.getElementById('ph').value,amount:v})});
+      await POST('/api/withdraw',{customer:CID,country:state.cc,national:document.getElementById('ph').value,amount:v});
       okmsg(`Sent ${fmt(v,w.localCurrency)} ${w.localCurrency}.`);setTimeout(close,900);});}
   if(a==='convert'){let dir='local_to_usdt';
     shell(`Convert — ${w.name}`,`<div class="seg"><button class="on" data-d="local_to_usdt">${w.localCurrency} → USDT</button><button data-d="usdt_to_local">USDT → ${w.localCurrency}</button></div><label id="inl">Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="0"><div class="quote" id="q"><div class="muted small">Enter an amount for a live quote.</div></div><div id="err"></div><button class="btn" id="go">Convert</button>`);
@@ -161,19 +262,44 @@ function openModal(a){
     seg.forEach(b=>b.onclick=()=>{seg.forEach(x=>x.classList.remove('on'));b.classList.add('on');dir=b.dataset.d;inl.textContent=dir==='local_to_usdt'?`Amount (${w.localCurrency})`:'Amount (USDT)';quote();});
     amt.oninput=quote;
     act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');
-      const r=await api('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,direction:dir,amount:v})});
+      const r=await POST('/api/convert',{customer:CID,country:state.cc,direction:dir,amount:v});
       okmsg(`Converted — you received ${dir==='local_to_usdt'?fmtU(r.quote.net)+' USDT':fmt(r.quote.net,w.localCurrency)+' '+w.localCurrency}.`);setTimeout(close,1100);});}
+  if(a==='remit'){
+    const opts=state.markets.map(m=>`<option value="${m.code}"${m.code!==state.cc?' selected':''}>${m.name} · ${m.ccy}</option>`).join('');
+    shell('Send abroad — reserve &amp; deliver',`<label>Destination country</label><select id="dc" class="inp">${opts}</select>
+      <label>Recipient MoMo number</label><input id="dn" placeholder="phone">
+      <label>Amount (USDT)</label><input id="amt" inputmode="decimal" placeholder="50">
+      <div class="quote" id="q"><div class="muted small">They receive local currency at the destination rate.</div></div>
+      <div class="small muted" style="margin-top:8px">Funds are reserved from your USDT now and delivered when the recipient signs in — even if they aren't registered yet.</div>
+      <div id="err"></div><button class="btn" id="go">Reserve &amp; send</button>`);
+    const dc=document.getElementById('dc'),amt=document.getElementById('amt');
+    const quote=()=>{const v=+amt.value,m=state.markets.find(x=>x.code===dc.value),q=document.getElementById('q');
+      if(!(v>0)||!m){q.innerHTML='<div class="muted small">They receive local currency at the destination rate.</div>';return;}
+      const g=v*+m.rate,fe=g*0.02,net=g-fe;
+      q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(m.rate,m.ccy)} ${m.ccy}</span></div><div class="qr"><span>Remittance fee (2%)</span><span>${fmt(fe,m.ccy)} ${m.ccy}</span></div><div class="qr tot"><span>They receive</span><span>${fmt(net,m.ccy)} ${m.ccy}</span></div>`;};
+    dc.onchange=quote;amt.oninput=quote;
+    act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');
+      const r=await POST('/api/remit/send',{customer:CID,destCountry:dc.value,destNational:document.getElementById('dn').value,amountUsdt:v});
+      okmsg(`Reserved ${fmtU(v)} USDT for +${r.claim.destMsisdn}. They receive ${fmt(r.estimate.net,r.estimate.currency)} ${r.estimate.currency} on sign-in. Claim code: ${r.claim.code}`);setTimeout(close,2200);});}
+  if(a==='bill'){
+    shell(`Pay a bill — ${w.name}`,`<label>Biller</label><select id="bl" class="inp"><option>Loading…</option></select>
+      <label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="1000">
+      <div class="small muted" style="margin-top:8px">Pays via ${w.operator} — MoMoPay / Paybill.</div><div id="err"></div><button class="btn" id="go">Pay</button>`);
+    api(`/api/billers?country=${state.cc}`).then(bs=>{document.getElementById('bl').innerHTML=bs.map(b=>`<option value="${b.code}">${b.name}</option>`).join('');});
+    act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter an amount.');
+      const r=await POST('/api/bill/pay',{customer:CID,country:state.cc,billerCode:document.getElementById('bl').value,amount:v});
+      okmsg(`Paid ${fmt(r.receipt.amount,r.receipt.currency)} ${r.receipt.currency} — ${r.receipt.billerName}.`);setTimeout(close,1100);});}
   if(a==='payroll'){shell(`Payroll — ${w.name} (MoMo Disbursements)`,`<div class="small muted">Pay many workers at once from your ${w.localCurrency} balance.</div><div id="rows" style="margin-top:10px"></div><button class="btn sec" id="add" style="margin-top:0">+ Add worker</button><div id="err"></div><button class="btn" id="go">Run payroll</button>`);
     const rows=document.getElementById('rows');const addRow=(ph,am)=>{const d=document.createElement('div');d.className='payrow';d.innerHTML=`<input placeholder="+${w.dial} phone" value="${ph||''}"><input inputmode="decimal" placeholder="amount" value="${am||''}"><button>✕</button>`;d.querySelector('button').onclick=()=>d.remove();rows.appendChild(d);};
     addRow('','');addRow('','');document.getElementById('add').onclick=()=>addRow();
     act('go',async()=>{const payees=[...rows.querySelectorAll('.payrow')].map(r=>{const i=r.querySelectorAll('input');return{ph:i[0].value.trim(),amt:+i[1].value};}).filter(x=>x.amt>0);
       if(!payees.length)throw new Error('Add at least one worker with an amount.');
-      const r=await api('/api/payroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,payees})});
+      const r=await POST('/api/payroll',{customer:CID,country:state.cc,payees});
       okmsg(`Paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed (insufficient balance)`:''}.`);setTimeout(close,1200);});}
 }
 document.getElementById('country').onchange=e=>{state.cc=e.target.value;refresh();};
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.view=b.dataset.view;render();});
-(async()=>{try{await loadMarkets();await refresh();}catch(e){view.innerHTML=`<div class="panel msg err">${e.message}</div>`;}})();
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.view=b.dataset.view;refresh();});
+(async()=>{try{await loadMarkets();if(ME&&ME.country)state.cc=ME.country;await refresh();}catch(e){view.innerHTML=`<div class="panel msg err">${e.message}</div>`;}})();
 </script>
 </body>
 </html>
