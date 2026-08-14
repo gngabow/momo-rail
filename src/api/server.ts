@@ -141,7 +141,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/markets') {
       return send(res, 200, registry.list().map((m) => ({
         code: m.code, name: m.displayName, ccy: m.localCurrency, dial: m.dialCode,
-        rate: rates[m.localCurrency], op: m.momoOperator,
+        rate: rates[m.localCurrency], op: m.momoOperator, enabled: m.enabled,
         tested: m.licensing.regime.endsWith('pilot'),
       })));
     }

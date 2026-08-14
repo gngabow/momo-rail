@@ -77,10 +77,6 @@
   <div class="csel" id="csel" style="display:none"><span class="fi" id="topFlag"></span><select id="country"></select></div>
 </div>
 <div class="wrap">
-  <div class="tabs" id="tabs" style="display:none">
-    <button class="on" data-view="wallet">My Wallet</button>
-    <button data-view="ops">Ops · Markets</button>
-  </div>
   <div id="view"><div class="panel muted">Loading…</div></div>
 </div>
 <div class="foot" id="foot"></div>
@@ -111,31 +107,27 @@ const POST=(path,body,headers)=>api(path,{method:'POST',headers:Object.assign({'
 
 async function loadMarkets(){
   state.markets=await api('/api/markets');
+  const en=state.markets.filter(m=>m.enabled);
   const sel=document.getElementById('country');
-  sel.innerHTML=state.markets.map(m=>`<option value="${m.code}">${m.name} · ${m.ccy}</option>`).join('');
+  sel.innerHTML=en.map(m=>`<option value="${m.code}">${m.name} · ${m.ccy}</option>`).join('');
+  if(!en.find(m=>m.code===state.cc)&&en[0])state.cc=en[0].code;
   sel.value=state.cc;
 }
 async function loadWallet(){ state.wallet=await api(`/api/wallet?customer=${CID}&country=${state.cc}`); }
 async function loadActivity(){ state.activity=await api(`/api/activity?customer=${CID}`); }
 
 const view=document.getElementById('view');
-const tabsEl=document.getElementById('tabs'), cselEl=document.getElementById('csel');
+const cselEl=document.getElementById('csel');
 
-// Top-level router: admin console, signed-in app, or the sign-in gate.
+// Top-level router: admin console, signed-in customer wallet, or the sign-in gate.
 function route(){
   renderAuth();
-  if(ADMIN){ tabsEl.style.display='none'; cselEl.style.display='none'; renderAdmin(); return; }
-  if(TOKEN&&ME){ tabsEl.style.display='flex'; cselEl.style.display='flex'; enterApp(); return; }
-  tabsEl.style.display='none'; cselEl.style.display='none'; renderGate();
+  if(ADMIN){ cselEl.style.display='none'; renderAdmin(); return; }
+  if(TOKEN&&ME){ cselEl.style.display='flex'; enterApp(); return; }
+  cselEl.style.display='none'; renderGate();
 }
-async function enterApp(){ try{ await loadWallet(); await loadActivity(); render(); }catch(e){ clearCustomer(); route(); } }
-async function refresh(){ if(ADMIN){renderAdmin();return;} if(TOKEN&&ME){await loadWallet();await loadActivity();render();}else{route();} }
-function render(){
-  document.getElementById('country').value=state.cc;
-  document.getElementById('topFlag').className='fi fi-'+state.cc.toLowerCase();
-  document.getElementById('foot').innerHTML='Signed in to your phone-linked wallet on the momo-rail engine (mock MoMo adapter). Cross-border remittance (reserve now, deliver on signup), bill pay (MoMoPay / Paybill), payroll — one code path, every MTN market.';
-  ({wallet:renderWallet,ops:renderOps}[state.view]||renderWallet)();
-}
+async function enterApp(){ try{ await loadWallet(); await loadActivity(); renderWallet(); }catch(e){ clearCustomer(); route(); } }
+async function refresh(){ if(ADMIN){renderAdmin();return;} if(TOKEN&&ME){await loadWallet();await loadActivity();renderWallet();}else{route();} }
 function renderAuth(){
   const el=document.getElementById('authbox');
   if(ADMIN){el.innerHTML=`<span class="small" style="color:#bfe4dc">🛠 Admin</span> <button class="lnk" id="so">Sign out</button>`;el.querySelector('#so').onclick=adminSignOut;return;}
@@ -144,7 +136,10 @@ function renderAuth(){
 }
 // ---- Sign-in gate (the landing screen) ----
 function renderGate(){
-  const opts=state.markets.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('');
+  const enabled=state.markets.filter(m=>m.enabled);
+  if(!enabled.length){ view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0"><h3>No markets are live</h3><div class="small muted">An operator needs to enable a market from the ops console before customers can sign in.</div><div id="gadmin" style="margin-top:18px;background:var(--brand2);color:#fff;border-radius:10px;padding:13px 14px;text-align:center;font-weight:800;cursor:pointer">Ops team? Admin sign-in →</div></div>`; document.getElementById('gadmin').onclick=e=>{e.preventDefault();adminLogin();}; return; }
+  if(!enabled.find(m=>m.code===state.cc)) state.cc=enabled[0].code;
+  const opts=enabled.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('');
   view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0">
     <h3>Sign in to your wallet</h3>
     <div class="small muted">Enter your MoMo number and we'll send a one-time code.</div>
@@ -152,9 +147,9 @@ function renderGate(){
     <label>MoMo number</label><input id="gn" inputmode="numeric" placeholder="712345678">
     <div id="err"></div>
     <button class="btn" id="ggo">Send code</button>
-    <div style="text-align:center;margin-top:16px"><a href="#" id="gadmin" class="small muted" style="text-decoration:none">Ops team? Admin sign-in →</a></div>
+    <div id="gadmin" style="margin-top:18px;background:var(--brand2);color:#fff;border-radius:10px;padding:13px 14px;text-align:center;font-weight:800;cursor:pointer;letter-spacing:.2px">Ops team? Admin sign-in →</div>
   </div>`;
-  document.getElementById('gc').value=state.cc;
+  const gsel=document.getElementById('gc'); if(gsel) gsel.value=state.cc;
   document.getElementById('ggo').onclick=async()=>{
     const country=document.getElementById('gc').value, national=document.getElementById('gn').value.trim();
     if(!national)return err('Enter your number.');
@@ -201,6 +196,9 @@ function adminLogin(){
 }
 function renderWallet(){
   const w=state.wallet; if(!w){view.innerHTML='<div class="panel muted">Loading…</div>';return;}
+  const cy=document.getElementById('country'); if(cy)cy.value=state.cc;
+  document.getElementById('topFlag').className='fi fi-'+state.cc.toLowerCase();
+  document.getElementById('foot').innerHTML='Signed in to your phone-linked wallet on the momo-rail engine (mock MoMo adapter). Cross-border remittance (reserve now, deliver on signup), bill pay (MoMoPay / Paybill), payroll — one code path, every MTN market.';
   view.innerHTML=`
     <div class="cards">
       <div class="bal"><div class="lab">${w.name} wallet</div><div class="amt">${fmt(w.local,w.localCurrency)} <small>${w.localCurrency}</small></div>
@@ -221,20 +219,29 @@ function renderWallet(){
       :'<div class="muted small">Nothing yet — try a cash-in, then convert to USDT.</div>'}</div>`;
   view.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>openModal(b.dataset.act));
 }
-function renderOps(){
-  view.innerHTML=`
-    <div class="panel"><h3>Markets — one rail, every country</h3>
-      <div class="small muted" style="margin-bottom:6px">16 MTN MoMo markets across 13 currencies, all served by one code path. Green = wired &amp; tested; amber = config-ready.</div>
-      <table><thead><tr><th></th><th>Market</th><th>Currency</th><th>Rate / USDT</th><th>Operator</th><th>Status</th></tr></thead><tbody>
-      ${state.markets.map(m=>`<tr><td><span class="fi fi-${m.code.toLowerCase()}"></span></td><td>${m.name}</td><td>${m.ccy}</td><td>${fmt(m.rate,m.ccy)}</td><td class="small muted">${m.op}</td><td><span class="pill ${m.tested?'':'cfg'}">${m.tested?'wired':'config-ready'}</span></td></tr>`).join('')}
-      </tbody></table></div>`;
+function opcoMarketsHtml(){
+  return `<div class="panel"><h3>Opco Markets — directory</h3>
+      <div class="small muted" style="margin-bottom:6px">16 MTN MoMo markets across 13 currencies, all served by one code path. Only <b>enabled</b> markets are available for customers to sign in.</div>
+      <div style="overflow:auto"><table><thead><tr><th></th><th>Market</th><th>Currency</th><th>Rate / USDT</th><th>Operator</th><th>Status</th><th>Enabled</th></tr></thead><tbody>
+      ${state.markets.map(m=>`<tr><td><span class="fi fi-${m.code.toLowerCase()}"></span></td><td>${m.name}</td><td>${m.ccy}</td><td>${fmt(m.rate,m.ccy)}</td><td class="small muted">${m.op}</td><td><span class="pill ${m.tested?'':'cfg'}">${m.tested?'wired':'config-ready'}</span></td><td><span class="pill ${m.enabled?'':'off'}">${m.enabled?'enabled':'disabled'}</span></td></tr>`).join('')}
+      </tbody></table></div></div>`;
 }
 const FEATS=[['walletConvert','C'],['inboundRemittance','I'],['outboundRemittance','O'],['payroll','P'],['merchantPay','M']];
 async function renderAdmin(){
   const H={headers:{Authorization:'Bearer '+ADMIN}};
+  const sub=state.adminView||'console';
+  const tabbar=`<div class="tabs"><button class="${sub==='console'?'on':''}" data-atab="console">Admin Opcos Console</button><button class="${sub==='markets'?'on':''}" data-atab="markets">Opco Markets</button></div>`;
+  const wireTabs=()=>view.querySelectorAll('[data-atab]').forEach(b=>b.onclick=()=>{state.adminView=b.dataset.atab;renderAdmin();});
+  document.getElementById('foot').innerHTML='Admin ops console — enable/configure Opco markets, watch treasury and in-flight settlements. Enabled markets are the ones customers can sign in with on the landing page.';
+  if(sub==='markets'){
+    try{ await loadMarkets(); }catch(e){}
+    view.innerHTML=tabbar+opcoMarketsHtml();
+    wireTabs(); return;
+  }
   let ov,tr,mk,inf,act;
   try{ [ov,tr,mk,inf,act]=await Promise.all([
     api('/api/admin/overview',H),api('/api/admin/treasury',H),api('/api/admin/markets',H),api('/api/admin/inflight',H),api('/api/admin/activity',H)]);
+    await loadMarkets();
   }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
   state.admin=mk;
   const tile=(lab,val)=>`<div style="flex:1;min-width:104px;background:var(--ice);border-radius:10px;padding:10px 12px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.4px;font-size:.64rem">${lab}</div><div style="font-weight:800;font-size:1.15rem;margin-top:2px">${val}</div></div>`;
@@ -276,7 +283,8 @@ async function renderAdmin(){
   const activity=`<div class="panel"><h3>System activity</h3>
     ${act.length?act.map(a=>`<div class="row"><span>${a.type}</span><span class="small muted">${a.amount?fmt(a.amount,a.currency)+' '+a.currency+' · ':''}${new Date(a.at).toLocaleTimeString()}</span></div>`).join(''):'<div class="muted small">No activity yet.</div>'}</div>`;
 
-  view.innerHTML=overview+treasury+markets+inflight+activity;
+  view.innerHTML=tabbar+overview+treasury+markets+inflight+activity;
+  wireTabs();
   view.querySelectorAll('tr[data-code]').forEach(row=>{
     row.querySelector('.save').onclick=async()=>{
       const code=row.dataset.code, features={};
@@ -290,7 +298,7 @@ async function renderAdmin(){
           features
         },{Authorization:'Bearer '+ADMIN});
         const sb=row.querySelector('.save');sb.textContent='Saved ✓';setTimeout(()=>sb.textContent='Save',1200);
-        if(code===state.cc){await loadMarkets();}
+        await loadMarkets();
       }catch(e){document.getElementById('err').innerHTML=`<div class="msg err">${e.message}</div>`;}
     };
   });
@@ -363,7 +371,6 @@ function openModal(a){
       okmsg(`Paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed (insufficient balance)`:''}.`);setTimeout(close,1200);});}
 }
 document.getElementById('country').onchange=e=>{state.cc=e.target.value;refresh();};
-document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.view=b.dataset.view;render();});
 (async()=>{try{await loadMarkets();if(ME&&ME.country)state.cc=ME.country;route();}catch(e){view.innerHTML=`<div class="panel msg err">${e.message}</div>`;}})();
 </script>
 </body>
