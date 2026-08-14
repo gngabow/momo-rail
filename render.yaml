@@ -1,0 +1,12 @@
+# Render Blueprint — deploys the One-In-All Rail portal + API as a Node web service.
+# In-memory demo (mock MoMo adapter): no database, no secrets, no external services.
+services:
+  - type: web
+    name: momo-rail
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/src/api/server.js
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

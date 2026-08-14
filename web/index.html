@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One-In-All Rail — Wallet</title>
+<link href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css" rel="stylesheet">
+<style>
+  :root{--brand:#0F5B52;--brand2:#0A3B36;--gold:#F2B705;--ink:#12332E;--muted:#5B6470;
+        --line:#E6E3DA;--bg:#F6F5F0;--card:#FFFFFF;--ok:#0F7B52;--bad:#B23A3A;--ice:#E7F1EF;}
+  *{box-sizing:border-box;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  body{margin:0;background:var(--bg);color:var(--ink)}
+  .top{background:var(--brand2);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .brand{font-weight:800;font-size:1.05rem}.brand .swap{color:var(--gold)}
+  .tag{font-size:.62rem;background:#11534b;color:#bfe4dc;padding:2px 8px;border-radius:20px;margin-left:6px}
+  .top .spacer{flex:1}
+  .csel{display:flex;align-items:center;gap:8px;background:#0e463f;border:1px solid #1c5f56;border-radius:10px;padding:5px 10px}
+  .csel .fi{width:24px;height:18px;border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
+  .csel select{background:transparent;color:#fff;border:none;font-size:.9rem;outline:none}
+  .csel select option{color:#111}
+  .wrap{max-width:960px;margin:18px auto;padding:0 16px}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs button{border:1px solid var(--line);background:#fff;padding:8px 16px;border-radius:20px;font-weight:600;color:var(--muted);cursor:pointer}
+  .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .bal{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .bal .lab{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .bal .amt{font-size:1.9rem;font-weight:800;margin-top:4px}
+  .bal .amt small{font-size:.9rem;color:var(--muted);font-weight:600}
+  .bal.usdt{background:linear-gradient(135deg,#0F5B52,#0A3B36);color:#fff;border:none}
+  .bal.usdt .lab{color:#bfe4dc}
+  .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+  .actions button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:14px 8px;cursor:pointer;font-weight:700;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:6px}
+  .actions button:hover{border-color:var(--brand);color:var(--brand)}.actions .ic{font-size:1.3rem}
+  h3{margin:0 0 8px;font-size:1rem}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #f0efe9;font-size:.9rem}
+  .row:first-child{border-top:none}.muted{color:var(--muted)}.small{font-size:.8rem}
+  table{width:100%;border-collapse:collapse;font-size:.86rem}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #f0efe9}
+  th{color:var(--muted);font-weight:600;font-size:.76rem;text-transform:uppercase}
+  td .fi{width:22px;height:16px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1)}
+  .pill{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--ice);color:var(--brand)}
+  .pill.cfg{background:#FFF6E5;color:#8A5A00}
+  .backdrop{position:fixed;inset:0;background:rgba(10,20,25,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .modal h3{font-size:1.15rem}
+  label{display:block;font-size:.82rem;color:var(--muted);margin:10px 0 4px}
+  input,.seg{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:1rem}
+  .seg{display:flex;gap:6px;padding:4px}
+  .seg button{flex:1;border:none;background:transparent;padding:8px;border-radius:8px;font-weight:700;color:var(--muted);cursor:pointer}
+  .seg button.on{background:var(--brand);color:#fff}
+  .quote{background:var(--ice);border-radius:10px;padding:12px;margin-top:12px;font-size:.9rem}
+  .quote .qr{display:flex;justify-content:space-between;padding:3px 0}
+  .quote .qr.tot{border-top:1px solid #cfe3dd;margin-top:6px;padding-top:8px;font-weight:800}
+  .btn{width:100%;background:var(--brand);color:#fff;border:none;border-radius:10px;padding:13px;font-weight:800;font-size:1rem;cursor:pointer;margin-top:14px}
+  .btn.sec{background:#fff;color:var(--muted);border:1px solid var(--line);margin-top:8px}
+  .btn:disabled{opacity:.6}
+  .msg{border-radius:10px;padding:10px 12px;font-size:.88rem;margin-top:10px}
+  .msg.ok{background:#E7F4EC;color:#0F7B52}.msg.err{background:#FBE9E9;color:#B23A3A}
+  .payrow{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-bottom:6px}
+  .payrow input{padding:8px}.payrow button{border:none;background:#f0efe9;border-radius:8px;padding:0 10px;cursor:pointer}
+  .foot{max-width:960px;margin:8px auto 30px;padding:0 16px;color:var(--muted);font-size:.75rem;line-height:1.5}
+  @media(max-width:640px){.actions{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">One-In-All Rail <span class="swap">⇄</span> <span class="tag" id="modeTag">live API</span></div>
+  <div class="spacer"></div>
+  <div class="csel"><span class="fi" id="topFlag"></span><select id="country"></select></div>
+</div>
+<div class="wrap">
+  <div class="tabs"><button class="on" data-view="wallet">My Wallet</button><button data-view="ops">Ops · Markets</button></div>
+  <div id="view"><div class="panel muted">Loading…</div></div>
+</div>
+<div class="foot" id="foot"></div>
+<div id="modalRoot"></div>
+<script>
+const SCALE0=new Set(['UGX','XOF','XAF','RWF','GNF']);
+const scaleOf=c=>SCALE0.has(c)?0:2;
+const fmt=(n,ccy)=>Number(n).toLocaleString('en-US',{minimumFractionDigits:scaleOf(ccy),maximumFractionDigits:scaleOf(ccy)});
+const fmtU=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+// stable per-browser customer id
+let CID=localStorage.getItem('momo_cid');
+if(!CID){CID='c-'+Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem('momo_cid',CID);}
+
+const state={cc:'UG',view:'wallet',markets:[],wallet:null,activity:[]};
+async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;}
+
+async function loadMarkets(){
+  state.markets=await api('/api/markets');
+  const sel=document.getElementById('country');
+  sel.innerHTML=state.markets.map(m=>`<option value="${m.code}">${m.name} · ${m.ccy}</option>`).join('');
+  sel.value=state.cc;
+}
+async function loadWallet(){ state.wallet=await api(`/api/wallet?customer=${CID}&country=${state.cc}`); }
+async function loadActivity(){ state.activity=await api(`/api/activity?customer=${CID}`); }
+
+const view=document.getElementById('view');
+async function refresh(){ await loadWallet(); await loadActivity(); render(); }
+function render(){
+  document.getElementById('country').value=state.cc;
+  document.getElementById('topFlag').className='fi fi-'+state.cc.toLowerCase();
+  document.getElementById('foot').innerHTML='Live demo wired to the momo-rail engine (mock MoMo adapter, in-memory — resets on restart). Per-market FX + 1.5% convert fee, per-currency scale, one shared USDT wallet. Your balances are keyed to this browser.';
+  (state.view==='ops'?renderOps:renderWallet)();
+}
+function renderWallet(){
+  const w=state.wallet; if(!w){view.innerHTML='<div class="panel muted">Loading…</div>';return;}
+  view.innerHTML=`
+    <div class="cards">
+      <div class="bal"><div class="lab">${w.name} wallet</div><div class="amt">${fmt(w.local,w.localCurrency)} <small>${w.localCurrency}</small></div>
+        <div class="small muted" style="margin-top:6px">MoMo: ${w.operator} · 1 USDT = ${fmt(w.rate,w.localCurrency)} ${w.localCurrency}</div></div>
+      <div class="bal usdt"><div class="lab">USDT wallet (shared)</div><div class="amt">${fmtU(w.usdt)} <small style="color:#bfe4dc">USDT</small></div>
+        <div class="small" style="margin-top:6px;color:#bfe4dc">One dollar balance, every market</div></div>
+    </div>
+    <div class="actions">
+      <button data-act="cashin"><span class="ic">📲</span>Cash in (MoMo)</button>
+      <button data-act="convert"><span class="ic">⇄</span>Convert</button>
+      <button data-act="cashout"><span class="ic">🏧</span>Send / Cash out</button>
+      <button data-act="payroll"><span class="ic">👥</span>Payroll</button>
+    </div>
+    <div class="panel"><h3>Recent activity</h3>${
+      state.activity.length? state.activity.slice(0,8).map(a=>`<div class="row"><span>${a.text}</span><span class="small muted">${new Date(a.t).toLocaleTimeString()}</span></div>`).join('')
+      :'<div class="muted small">Nothing yet — try a cash-in, then convert to USDT.</div>'}</div>`;
+  view.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>openModal(b.dataset.act));
+}
+function renderOps(){
+  view.innerHTML=`
+    <div class="panel"><h3>Markets — one rail, every country</h3>
+      <div class="small muted" style="margin-bottom:6px">16 MTN MoMo markets across 13 currencies, all served by one code path. Green = wired &amp; tested; amber = config-ready.</div>
+      <table><thead><tr><th></th><th>Market</th><th>Currency</th><th>Rate / USDT</th><th>Operator</th><th>Status</th></tr></thead><tbody>
+      ${state.markets.map(m=>`<tr><td><span class="fi fi-${m.code.toLowerCase()}"></span></td><td>${m.name}</td><td>${m.ccy}</td><td>${fmt(m.rate,m.ccy)}</td><td class="small muted">${m.op}</td><td><span class="pill ${m.tested?'':'cfg'}">${m.tested?'wired':'config-ready'}</span></td></tr>`).join('')}
+      </tbody></table></div>`;
+}
+const root=document.getElementById('modalRoot');
+function close(){root.innerHTML='';}
+function shell(title,inner){root.innerHTML=`<div class="backdrop"><div class="modal"><h3>${title}</h3>${inner}<button class="btn sec" id="mClose">Close</button></div></div>`;
+  root.querySelector('.backdrop').onclick=e=>{if(e.target===root.querySelector('.backdrop'))close();};document.getElementById('mClose').onclick=close;}
+function err(t){const e=document.getElementById('err');if(e)e.innerHTML=`<div class="msg err">${t}</div>`;}
+function okmsg(t){const e=document.getElementById('err');if(e)e.innerHTML=`<div class="msg ok">${t}</div>`;}
+async function act(btnId, fn){const b=document.getElementById(btnId);if(!b)return;b.onclick=async()=>{b.disabled=true;try{await fn();await refresh();}catch(e){err(e.message);b.disabled=false;}};}
+
+function openModal(a){
+  const w=state.wallet, m=state.markets.find(x=>x.code===state.cc);
+  if(a==='cashin'){shell(`Cash in — ${w.name} MoMo`,`<label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="${w.localCurrency==='UGX'?'100000':'2000'}"><div class="small muted" style="margin-top:8px">Simulates a MoMo collection (request-to-pay) from ${w.operator}.</div><div id="err"></div><button class="btn" id="go">Approve MoMo prompt</button>`);
+    act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter a valid amount.');
+      const r=await api('/api/deposit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,amount:v})});
+      okmsg(`Received ${fmt(v,w.localCurrency)} ${w.localCurrency}.`);setTimeout(close,900);});}
+  if(a==='cashout'){shell(`Send / Cash out — ${w.name}`,`<label>Recipient MoMo number</label><input id="ph" placeholder="+${w.dial} …"><label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="1000"><div class="small muted" style="margin-top:8px">Simulates a MoMo disbursement (B2C payout).</div><div id="err"></div><button class="btn" id="go">Send</button>`);
+    act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter a valid amount.');
+      await api('/api/withdraw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,national:document.getElementById('ph').value,amount:v})});
+      okmsg(`Sent ${fmt(v,w.localCurrency)} ${w.localCurrency}.`);setTimeout(close,900);});}
+  if(a==='convert'){let dir='local_to_usdt';
+    shell(`Convert — ${w.name}`,`<div class="seg"><button class="on" data-d="local_to_usdt">${w.localCurrency} → USDT</button><button data-d="usdt_to_local">USDT → ${w.localCurrency}</button></div><label id="inl">Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="0"><div class="quote" id="q"><div class="muted small">Enter an amount for a live quote.</div></div><div id="err"></div><button class="btn" id="go">Convert</button>`);
+    const seg=root.querySelectorAll('.seg button'),inl=document.getElementById('inl'),amt=document.getElementById('amt'),rate=+w.rate,FEE=0.015;
+    const quote=()=>{const v=+amt.value,q=document.getElementById('q');if(!(v>0)){q.innerHTML='<div class="muted small">Enter an amount for a live quote.</div>';return;}
+      if(dir==='local_to_usdt'){const g=v/rate,fe=g*FEE,net=g-fe;q.innerHTML=`<div class="qr"><span>You convert</span><span>${fmt(v,w.localCurrency)} ${w.localCurrency}</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(rate,w.localCurrency)} ${w.localCurrency}</span></div><div class="qr"><span>Fee (1.5%)</span><span>${fmtU(fe)} USDT</span></div><div class="qr tot"><span>You receive</span><span>${fmtU(net)} USDT</span></div>`;}
+      else{const g=v*rate,fe=g*FEE,net=g-fe;q.innerHTML=`<div class="qr"><span>You convert</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(rate,w.localCurrency)} ${w.localCurrency}</span></div><div class="qr"><span>Fee (1.5%)</span><span>${fmt(fe,w.localCurrency)} ${w.localCurrency}</span></div><div class="qr tot"><span>You receive</span><span>${fmt(net,w.localCurrency)} ${w.localCurrency}</span></div>`;}};
+    seg.forEach(b=>b.onclick=()=>{seg.forEach(x=>x.classList.remove('on'));b.classList.add('on');dir=b.dataset.d;inl.textContent=dir==='local_to_usdt'?`Amount (${w.localCurrency})`:'Amount (USDT)';quote();});
+    amt.oninput=quote;
+    act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');
+      const r=await api('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,direction:dir,amount:v})});
+      okmsg(`Converted — you received ${dir==='local_to_usdt'?fmtU(r.quote.net)+' USDT':fmt(r.quote.net,w.localCurrency)+' '+w.localCurrency}.`);setTimeout(close,1100);});}
+  if(a==='payroll'){shell(`Payroll — ${w.name} (MoMo Disbursements)`,`<div class="small muted">Pay many workers at once from your ${w.localCurrency} balance.</div><div id="rows" style="margin-top:10px"></div><button class="btn sec" id="add" style="margin-top:0">+ Add worker</button><div id="err"></div><button class="btn" id="go">Run payroll</button>`);
+    const rows=document.getElementById('rows');const addRow=(ph,am)=>{const d=document.createElement('div');d.className='payrow';d.innerHTML=`<input placeholder="+${w.dial} phone" value="${ph||''}"><input inputmode="decimal" placeholder="amount" value="${am||''}"><button>✕</button>`;d.querySelector('button').onclick=()=>d.remove();rows.appendChild(d);};
+    addRow('','');addRow('','');document.getElementById('add').onclick=()=>addRow();
+    act('go',async()=>{const payees=[...rows.querySelectorAll('.payrow')].map(r=>{const i=r.querySelectorAll('input');return{ph:i[0].value.trim(),amt:+i[1].value};}).filter(x=>x.amt>0);
+      if(!payees.length)throw new Error('Add at least one worker with an amount.');
+      const r=await api('/api/payroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer:CID,country:state.cc,payees})});
+      okmsg(`Paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed (insufficient balance)`:''}.`);setTimeout(close,1200);});}
+}
+document.getElementById('country').onchange=e=>{state.cc=e.target.value;refresh();};
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.view=b.dataset.view;render();});
+(async()=>{try{await loadMarkets();await refresh();}catch(e){view.innerHTML=`<div class="panel msg err">${e.message}</div>`;}})();
+</script>
+</body>
+</html>
