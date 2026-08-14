@@ -230,25 +230,71 @@ const FEATS=[['walletConvert','C'],['inboundRemittance','I'],['outboundRemittanc
 async function renderAdmin(){
   const H={headers:{Authorization:'Bearer '+ADMIN}};
   const sub=state.adminView||'console';
-  const tabbar=`<div class="tabs"><button class="${sub==='console'?'on':''}" data-atab="console">Admin Opcos Console</button><button class="${sub==='markets'?'on':''}" data-atab="markets">Opco Markets</button></div>`;
+  const tb=(id,label)=>`<button class="${sub===id?'on':''}" data-atab="${id}">${label}</button>`;
+  const tabbar=`<div class="tabs">${tb('console','Admin Opcos Console')}${tb('markets','Opco Markets')}${tb('config','Configure Opcos')}</div>`;
   const wireTabs=()=>view.querySelectorAll('[data-atab]').forEach(b=>b.onclick=()=>{state.adminView=b.dataset.atab;renderAdmin();});
-  document.getElementById('foot').innerHTML='Admin ops console — enable/configure Opco markets, watch treasury and in-flight settlements. Enabled markets are the ones customers can sign in with on the landing page.';
+  document.getElementById('foot').innerHTML='Admin ops console — monitor treasury and settlements, and configure/enable Opco markets. Enabled markets are the ones customers can sign in with on the landing page.';
+  const tile=(lab,val)=>`<div style="flex:1;min-width:104px;background:var(--ice);border-radius:10px;padding:10px 12px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.4px;font-size:.64rem">${lab}</div><div style="font-weight:800;font-size:1.15rem;margin-top:2px">${val}</div></div>`;
+
+  // ---- Opco Markets: read-only directory ----
   if(sub==='markets'){
     try{ await loadMarkets(); }catch(e){}
     view.innerHTML=tabbar+opcoMarketsHtml();
     wireTabs(); return;
   }
-  let ov,tr,mk,inf,act;
-  try{ [ov,tr,mk,inf,act]=await Promise.all([
-    api('/api/admin/overview',H),api('/api/admin/treasury',H),api('/api/admin/markets',H),api('/api/admin/inflight',H),api('/api/admin/activity',H)]);
-    await loadMarkets();
+
+  // ---- Configure Opcos: the writing editor (loaded on click) ----
+  if(sub==='config'){
+    let mk;
+    try{ mk=await api('/api/admin/markets',H); await loadMarkets(); }
+    catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
+    state.admin=mk;
+    const feat=(m,key,letter)=>`<label style="display:inline-flex;align-items:center;gap:1px;font-size:.7rem;margin:0"><input type="checkbox" class="ft" data-f="${key}" style="width:auto"${m.features[key]?' checked':''}>${letter}</label>`;
+    const editor=`<div class="panel"><h3>Configure Opcos — writing console</h3>
+      <div class="small muted" style="margin-bottom:8px">Each row is a market's live configuration. Edits take effect on the rail immediately and persist. Features: <b>C</b>onvert · <b>I</b>nbound remit · <b>O</b>utbound remit · <b>P</b>ayroll · <b>M</b>erchant pay.</div>
+      <div style="overflow:auto"><table><thead><tr><th>Market</th><th>Adapter</th><th>Env</th><th>Convert</th><th>Remit</th><th>Per-tx max</th><th>Features</th><th>On</th><th></th></tr></thead><tbody>
+      ${mk.map(m=>`<tr data-code="${m.code}">
+        <td style="white-space:nowrap"><span class="fi fi-${m.code.toLowerCase()}"></span> ${m.code}·${m.ccy}</td>
+        <td><select class="pk inp" style="padding:5px"><option value="momo_mock"${m.providerKey==='momo_mock'?' selected':''}>mock</option><option value="momo"${m.providerKey==='momo'?' selected':''}>live</option></select></td>
+        <td><select class="env inp" style="padding:5px"><option value="sandbox"${m.providerEnv==='sandbox'?' selected':''}>sandbox</option><option value="production"${m.providerEnv==='production'?' selected':''}>prod</option></select></td>
+        <td><input class="cfee" style="width:56px;padding:5px" value="${m.feeSchedule.convertRate}"></td>
+        <td><input class="rfee" style="width:56px;padding:5px" value="${m.feeSchedule.remittanceRate}"></td>
+        <td><input class="lim" style="width:104px;padding:5px" value="${m.limits.perTxMaxLocal}"></td>
+        <td style="white-space:nowrap">${FEATS.map(([k,l])=>feat(m,k,l)).join(' ')}</td>
+        <td><input type="checkbox" class="en"${m.enabled?' checked':''}></td>
+        <td><button class="lnk save" style="border-color:var(--brand);color:var(--brand)">Save</button></td>
+      </tr>`).join('')}
+      </tbody></table></div><div id="err"></div></div>`;
+    view.innerHTML=tabbar+editor;
+    wireTabs();
+    view.querySelectorAll('tr[data-code]').forEach(row=>{
+      row.querySelector('.save').onclick=async()=>{
+        const code=row.dataset.code, features={};
+        row.querySelectorAll('.ft').forEach(cb=>features[cb.dataset.f]=cb.checked);
+        try{ await POST('/api/admin/market/'+code,{
+            enabled:row.querySelector('.en').checked,
+            providerKey:row.querySelector('.pk').value,
+            providerEnv:row.querySelector('.env').value,
+            feeSchedule:{convertRate:parseFloat(row.querySelector('.cfee').value),remittanceRate:parseFloat(row.querySelector('.rfee').value)},
+            limits:{perTxMaxLocal:row.querySelector('.lim').value},
+            features
+          },{Authorization:'Bearer '+ADMIN});
+          const sb=row.querySelector('.save');sb.textContent='Saved ✓';setTimeout(()=>sb.textContent='Save',1200);
+          await loadMarkets();
+        }catch(e){document.getElementById('err').innerHTML=`<div class="msg err">${e.message}</div>`;}
+      };
+    });
+    return;
+  }
+
+  // ---- Admin Opcos Console: the dashboard ----
+  let ov,tr,inf,act;
+  try{ [ov,tr,inf,act]=await Promise.all([
+    api('/api/admin/overview',H),api('/api/admin/treasury',H),api('/api/admin/inflight',H),api('/api/admin/activity',H)]);
   }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
-  state.admin=mk;
-  const tile=(lab,val)=>`<div style="flex:1;min-width:104px;background:var(--ice);border-radius:10px;padding:10px 12px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.4px;font-size:.64rem">${lab}</div><div style="font-weight:800;font-size:1.15rem;margin-top:2px">${val}</div></div>`;
 
   const overview=`<div class="panel"><h3>Overview</h3><div style="display:flex;gap:10px;flex-wrap:wrap">
     ${tile('Storage',ov.store)}${tile('Markets enabled',ov.enabled+' / '+ov.markets)}${tile('Live on MTN',ov.liveOnMtn)}${tile('Currencies',ov.currencies)}${tile('Wallets',ov.walletsSeeded)}</div></div>`;
-
   const treasury=`<div class="panel"><h3>Treasury — system balances</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${tile('USDT hot wallet',fmtU(tr.usdt.hotWallet)+' USDT')}${tile('USDT fee revenue',fmtU(tr.usdt.feeRevenue)+' USDT')}${tile('Remittance escrow',fmtU(tr.usdt.remitEscrow)+' USDT')}</div>
@@ -256,52 +302,16 @@ async function renderAdmin(){
     ${tr.local.map(r=>`<tr><td>${r.currency}</td><td>${fmt(r.float,r.currency)}</td><td>${fmt(r.feeRevenue,r.currency)}</td><td>${fmt(r.suspense,r.currency)}</td><td>${fmt(r.biller,r.currency)}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="small muted" style="margin-top:6px">Float and hot-wallet balances are negative by convention — they're the pool that funds customer wallets (a liability owed out).</div></div>`;
-
-  const feat=(m,key,letter)=>`<label style="display:inline-flex;align-items:center;gap:1px;font-size:.7rem;margin:0"><input type="checkbox" class="ft" data-f="${key}" style="width:auto"${m.features[key]?' checked':''}>${letter}</label>`;
-  const markets=`<div class="panel"><h3>Markets — writing ops console</h3>
-    <div class="small muted" style="margin-bottom:8px">Edits take effect live and persist. Features: <b>C</b>onvert · <b>I</b>nbound remit · <b>O</b>utbound remit · <b>P</b>ayroll · <b>M</b>erchant pay.</div>
-    <div style="overflow:auto"><table><thead><tr><th>Market</th><th>Adapter</th><th>Env</th><th>Convert</th><th>Remit</th><th>Per-tx max</th><th>Features</th><th>On</th><th></th></tr></thead><tbody>
-    ${mk.map(m=>`<tr data-code="${m.code}">
-      <td style="white-space:nowrap"><span class="fi fi-${m.code.toLowerCase()}"></span> ${m.code}·${m.ccy}</td>
-      <td><select class="pk inp" style="padding:5px"><option value="momo_mock"${m.providerKey==='momo_mock'?' selected':''}>mock</option><option value="momo"${m.providerKey==='momo'?' selected':''}>live</option></select></td>
-      <td><select class="env inp" style="padding:5px"><option value="sandbox"${m.providerEnv==='sandbox'?' selected':''}>sandbox</option><option value="production"${m.providerEnv==='production'?' selected':''}>prod</option></select></td>
-      <td><input class="cfee" style="width:56px;padding:5px" value="${m.feeSchedule.convertRate}"></td>
-      <td><input class="rfee" style="width:56px;padding:5px" value="${m.feeSchedule.remittanceRate}"></td>
-      <td><input class="lim" style="width:104px;padding:5px" value="${m.limits.perTxMaxLocal}"></td>
-      <td style="white-space:nowrap">${FEATS.map(([k,l])=>feat(m,k,l)).join(' ')}</td>
-      <td><input type="checkbox" class="en"${m.enabled?' checked':''}></td>
-      <td><button class="lnk save" style="border-color:var(--brand);color:var(--brand)">Save</button></td>
-    </tr>`).join('')}
-    </tbody></table></div><div id="err"></div></div>`;
-
   const inflight=`<div class="panel"><h3>In-flight</h3>
     <div class="small muted" style="margin-bottom:4px">Pending MoMo settlements: ${inf.pending.length} · Reserved remittances: ${inf.claims.length}</div>
     ${inf.pending.map(x=>`<div class="row"><span>${x.kind} · ${fmt(x.amountLocal,x.currency)} ${x.currency} <span class="pill res">${x.status}</span></span><span class="small muted">${x.countryCode}</span></div>`).join('')}
     ${inf.claims.map(c=>`<div class="row"><span>remit → +${c.destMsisdn} · ${fmtU(c.amountUsdt)} USDT <span class="pill res">reserved</span></span><span class="small muted">code ${c.code}</span></div>`).join('')}
     ${(!inf.pending.length&&!inf.claims.length)?'<div class="muted small">Nothing in flight.</div>':''}</div>`;
-
   const activity=`<div class="panel"><h3>System activity</h3>
     ${act.length?act.map(a=>`<div class="row"><span>${a.type}</span><span class="small muted">${a.amount?fmt(a.amount,a.currency)+' '+a.currency+' · ':''}${new Date(a.at).toLocaleTimeString()}</span></div>`).join(''):'<div class="muted small">No activity yet.</div>'}</div>`;
 
-  view.innerHTML=tabbar+overview+treasury+markets+inflight+activity;
+  view.innerHTML=tabbar+overview+treasury+inflight+activity;
   wireTabs();
-  view.querySelectorAll('tr[data-code]').forEach(row=>{
-    row.querySelector('.save').onclick=async()=>{
-      const code=row.dataset.code, features={};
-      row.querySelectorAll('.ft').forEach(cb=>features[cb.dataset.f]=cb.checked);
-      try{ await POST('/api/admin/market/'+code,{
-          enabled:row.querySelector('.en').checked,
-          providerKey:row.querySelector('.pk').value,
-          providerEnv:row.querySelector('.env').value,
-          feeSchedule:{convertRate:parseFloat(row.querySelector('.cfee').value),remittanceRate:parseFloat(row.querySelector('.rfee').value)},
-          limits:{perTxMaxLocal:row.querySelector('.lim').value},
-          features
-        },{Authorization:'Bearer '+ADMIN});
-        const sb=row.querySelector('.save');sb.textContent='Saved ✓';setTimeout(()=>sb.textContent='Save',1200);
-        await loadMarkets();
-      }catch(e){document.getElementById('err').innerHTML=`<div class="msg err">${e.message}</div>`;}
-    };
-  });
 }
 
 const root=document.getElementById('modalRoot');
