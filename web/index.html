@@ -284,6 +284,7 @@ function renderWallet(){
     <div class="actions">
       <button class="a-in" data-act="cashin"><span class="ic">📲</span>Cash in</button>
       <button class="a-in" data-act="convert"><span class="ic">⇄</span>Convert</button>
+      <button class="a-in" data-act="getpaid"><span class="ic">📥</span>Request a payment</button>
       <button class="a-cash" data-act="cashout"><span class="ic">🏧</span>Cash out</button>
       <button class="a-send" data-act="remit"><span class="ic">🌍</span><span class="lbl"><span class="l1">Send Abroad</span><span class="l2">(MTN To MTN)</span></span></button>
       <button class="a-send" data-act="remitIntl"><span class="ic">💵</span><span class="lbl"><span class="l1">Send Abroad</span><span class="l2 hi">(International Remittance)</span></span></button>
@@ -644,6 +645,37 @@ function openModal(a){
     act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter an amount.');
       const r=await POST('/api/bill/pay',{customer:CID,country:state.cc,billerCode:document.getElementById('bl').value,amount:v});
       okmsg(`Paid ${fmt(r.receipt.amount,r.receipt.currency)} ${r.receipt.currency} — ${r.receipt.billerName}.`);setTimeout(close,1100);});}
+  if(a==='getpaid'){
+    shell('Request a payment',`
+      <div class="seg" id="gpseg"><button class="on" data-t="req">Request money</button><button data-t="pay">Pay a request</button></div>
+      <div id="reqPane">
+        <label>Currency</label><div class="seg" id="curseg"><button class="on" data-c="USDT">USDT</button><button data-c="local">${w.localCurrency}</button></div>
+        <label id="amlbl">Amount (USDT)</label><input id="amt" inputmode="decimal" placeholder="0">
+        <label>Note (optional)</label><input id="note" placeholder="What's it for?">
+        <div id="err"></div><button class="btn" id="mk">Create request</button>
+        <div id="reqout"></div>
+      </div>
+      <div id="payPane" style="display:none">
+        <label>Request code</label><input id="rc" placeholder="e.g. A1B2C3D4">
+        <div class="quote" id="rq"><div class="muted small">Enter a code to see the request.</div></div>
+        <div id="err2"></div><button class="btn" id="paybtn">Pay request</button>
+      </div>`);
+    const rp=document.getElementById('reqPane'),pp=document.getElementById('payPane');
+    root.querySelectorAll('#gpseg button').forEach(b=>b.onclick=()=>{root.querySelectorAll('#gpseg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');const t=b.dataset.t;rp.style.display=t==='req'?'block':'none';pp.style.display=t==='pay'?'block':'none';});
+    let cur='USDT';
+    root.querySelectorAll('#curseg button').forEach(b=>b.onclick=()=>{root.querySelectorAll('#curseg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');cur=b.dataset.c==='USDT'?'USDT':w.localCurrency;document.getElementById('amlbl').textContent='Amount ('+cur+')';});
+    document.getElementById('mk').onclick=async()=>{const v=+document.getElementById('amt').value;const e=document.getElementById('err');e.innerHTML='';if(!(v>0)){e.innerHTML='<div class="msg err">Enter an amount.</div>';return;}
+      try{const r=await POST('/api/request/create',{customer:CID,currency:cur,amount:v,note:document.getElementById('note').value,country:state.cc});
+        document.getElementById('reqout').innerHTML=`<div class="msg ok" style="margin-top:10px">Share this code: <b>${r.request.code}</b><div class="small muted" style="margin-top:2px">${r.request.amount} ${r.request.currency}${r.request.note?' · '+r.request.note:''}</div></div>`;
+      }catch(err){e.innerHTML=`<div class="msg err">${err.message}</div>`;}};
+    const rc=document.getElementById('rc');
+    rc.oninput=async()=>{const code=rc.value.trim();const q=document.getElementById('rq');if(code.length<4){q.innerHTML='<div class="muted small">Enter a code to see the request.</div>';return;}
+      try{const d=await api('/api/request/lookup?code='+encodeURIComponent(code));q.innerHTML=d.status!=='open'?`<div class="small muted">Request is ${d.status}.</div>`:`<div class="qr"><span>Amount</span><span>${d.amount} ${d.currency}</span></div>${d.note?`<div class="qr"><span>Note</span><span>${d.note}</span></div>`:''}`;}catch(e){q.innerHTML='<div class="small muted">No request with that code.</div>';}};
+    document.getElementById('paybtn').onclick=async()=>{const code=rc.value.trim();const e=document.getElementById('err2');e.innerHTML='';if(!code){e.innerHTML='<div class="msg err">Enter a request code.</div>';return;}
+      try{const r=await POST('/api/request/pay',{customer:CID,code});e.innerHTML=`<div class="msg ok">Paid ${r.request.amount} ${r.request.currency} (request ${r.request.code}).</div>`;setTimeout(()=>{close();refresh();},1300);}
+      catch(err){e.innerHTML=`<div class="msg err">${err.message}</div>`;}};
+    return;
+  }
   if(a==='payroll'){shell(`Payroll — ${w.name} (MoMo Disbursements)`,`<div class="small muted">Pay many workers at once from your ${w.localCurrency} balance.</div><div id="rows" style="margin-top:10px"></div><button class="btn sec" id="add" style="margin-top:0">+ Add worker</button><div id="err"></div><button class="btn" id="go">Run payroll</button>`);
     const rows=document.getElementById('rows');const addRow=(ph,am)=>{const d=document.createElement('div');d.className='payrow';d.innerHTML=`<input placeholder="+${w.dial} phone" value="${ph||''}"><input inputmode="decimal" placeholder="amount" value="${am||''}"><button>✕</button>`;d.querySelector('button').onclick=()=>d.remove();rows.appendChild(d);};
     addRow('','');addRow('','');document.getElementById('add').onclick=()=>addRow();

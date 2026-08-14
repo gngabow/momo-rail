@@ -22,6 +22,7 @@ import { ClaimStore } from '../remittance/claimStore';
 import { PgClaimSink } from '../remittance/pgClaimSink';
 import { RemittanceService } from '../remittance/remittanceService';
 import { BillerService } from '../billers/billerService';
+import { RequestService } from '../requests/requestService';
 import { toMsisdn } from '../context/phone';
 import crypto from 'crypto';
 
@@ -46,6 +47,7 @@ let auth: AuthService;
 let ops: OpsService;
 let remit: RemittanceService;
 let billers: BillerService;
+let requests: RequestService;
 const rates: Record<string, string> = {};
 
 function makeStore(): LedgerStore {
@@ -418,6 +420,15 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/billers') {
       return send(res, 200, billers.list(q.get('country') ? String(q.get('country')) : undefined));
     }
+    if (p === '/api/request/outbox') {
+      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      return send(res, 200, requests.listFor(cid));
+    }
+    if (p === '/api/request/lookup') {
+      const r = requests.getByCode(String(q.get('code') || ''));
+      if (!r) return send(res, 404, { error: 'No such request' });
+      return send(res, 200, { code: r.code, currency: r.currency, country: r.country, amount: r.amount, note: r.note, status: r.status });
+    }
 
     // MoMo provider callback — MTN posts the terminal state here (X-Callback-Url).
     // Settles the matching in-flight deposit/withdraw exactly once.
@@ -520,6 +531,17 @@ const server = http.createServer(async (req, res) => {
         logAct(cid, `Paid ${rc.amount} ${rc.currency} — ${rc.billerName}`, 'neg');
         return send(res, 200, { receipt: rc, wallet: await balances(cid, country) });
       }
+      if (p === '/api/request/create') {
+        const r = await requests.create({ requesterCustomerId: cid, currency: String(b.currency || 'USDT'), amount: String(b.amount), note: b.note ? String(b.note) : '', country: b.country ? String(b.country) : country });
+        logAct(cid, `Requested ${r.amount} ${r.currency}${r.note ? ` · ${r.note}` : ''} · code ${r.code}`, '');
+        return send(res, 200, { request: r });
+      }
+      if (p === '/api/request/pay') {
+        const r = await requests.pay({ code: String(b.code || ''), payerCustomerId: cid });
+        logAct(cid, `Paid request ${r.request.code} — ${r.amount} ${r.currency}`, 'neg');
+        logAct(r.request.requesterCustomerId, `Request ${r.request.code} paid — received ${r.amount} ${r.currency}`, 'pos');
+        return send(res, 200, { request: r.request, wallet: await balances(cid, isIntlCustomer(cid) ? country : (r.request.country || country)) });
+      }
     }
 
     send(res, 404, { error: 'Not found' });
@@ -572,6 +594,7 @@ async function start() {
   }
   remit = new RemittanceService(ledger, registry, fx, claims);
   billers = new BillerService(ledger, registry);
+  requests = new RequestService(ledger, registry);
 
   for (const pr of registry.list()) {
     if (!rates[pr.localCurrency]) rates[pr.localCurrency] = await fx.getLocalPerUsdt(pr.localCurrency);
