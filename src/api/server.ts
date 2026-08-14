@@ -192,18 +192,71 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/admin/markets') {
         return send(res, 200, registry.list().map((m) => ({
           code: m.code, name: m.displayName, enabled: m.enabled, ccy: m.localCurrency,
-          providerKey: m.providerKey, providerEnv: m.providerEnv,
-          feeSchedule: m.feeSchedule, limits: m.limits, operator: m.momoOperator,
+          providerKey: m.providerKey, providerEnv: m.providerEnv, merchantModel: m.merchantModel,
+          feeSchedule: m.feeSchedule, limits: m.limits, features: m.features, operator: m.momoOperator,
         })));
       }
       const mk = /^\/api\/admin\/market\/([A-Za-z]{2})$/.exec(p);
       if (mk && req.method === 'POST') {
         const b = await readBody(req);
         const u = await ops.updateMarket(mk[1], {
-          enabled: b.enabled, providerKey: b.providerKey, providerEnv: b.providerEnv,
-          feeSchedule: b.feeSchedule, limits: b.limits,
+          enabled: b.enabled, providerKey: b.providerKey, providerEnv: b.providerEnv, merchantModel: b.merchantModel,
+          feeSchedule: b.feeSchedule, limits: b.limits, features: b.features,
         });
-        return send(res, 200, { updated: { code: u.code, enabled: u.enabled, providerKey: u.providerKey, providerEnv: u.providerEnv, feeSchedule: u.feeSchedule, limits: u.limits } });
+        return send(res, 200, { updated: { code: u.code, enabled: u.enabled, providerKey: u.providerKey, providerEnv: u.providerEnv, merchantModel: u.merchantModel, feeSchedule: u.feeSchedule, limits: u.limits, features: u.features } });
+      }
+
+      // Overview strip — storage mode and market counts at a glance.
+      if (p === '/api/admin/overview') {
+        const list = registry.list();
+        return send(res, 200, {
+          store: process.env.DATABASE_URL ? 'postgres' : 'memory',
+          markets: list.length,
+          enabled: list.filter((m) => m.enabled).length,
+          liveOnMtn: list.filter((m) => m.providerKey === 'momo').length,
+          currencies: new Set(list.map((m) => m.localCurrency)).size,
+          walletsSeeded: seeded.size,
+        });
+      }
+
+      // Treasury — system money position: per-currency float/fees/suspense/biller + shared USDT.
+      if (p === '/api/admin/treasury') {
+        const g = async (id: string) => (await ledger.getBalance(id)).balance;
+        const seen = new Set<string>();
+        const local: any[] = [];
+        for (const prof of registry.list()) {
+          const ccy = prof.localCurrency;
+          if (seen.has(ccy)) continue;
+          seen.add(ccy);
+          local.push({
+            currency: ccy,
+            float: await g(`sys-${ccy}-float`),
+            feeRevenue: await g(`sys-${ccy}-feerev`),
+            suspense: await g(`sys-${ccy}-suspense`),
+            biller: await g(`sys-${ccy}-biller`),
+          });
+        }
+        const usdt = {
+          hotWallet: await g('sys-USDT-hot'),
+          feeRevenue: await g('sys-USDT-feerev'),
+          remitEscrow: await g('sys-USDT-remit-escrow'),
+        };
+        return send(res, 200, { usdt, local });
+      }
+
+      // In-flight — pending MoMo settlements + reserved remittance claims.
+      if (p === '/api/admin/inflight') {
+        return send(res, 200, { pending: rail.pendingStore().list(), claims: remit.reservedClaims() });
+      }
+
+      // System-wide activity feed (most recent journal entries).
+      if (p === '/api/admin/activity') {
+        const entries = await ledger.listEntries();
+        const recent = entries.slice(-30).reverse().map((e) => {
+          const pos = e.lines.filter((l) => Number(l.amount) > 0).sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)))[0];
+          return { type: e.entryType, amount: pos ? pos.amount : '', currency: pos ? pos.currency : '', at: e.createdAt };
+        });
+        return send(res, 200, recent);
       }
       return send(res, 404, { error: 'unknown admin route' });
     }

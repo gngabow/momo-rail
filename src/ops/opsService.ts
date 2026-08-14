@@ -12,8 +12,10 @@ export interface MarketPatch {
   enabled?: boolean;
   providerKey?: string;
   providerEnv?: 'sandbox' | 'production';
+  merchantModel?: CountryProfile['merchantModel'];
   feeSchedule?: Partial<CountryProfile['feeSchedule']>;
   limits?: Partial<CountryProfile['limits']>;
+  features?: Partial<CountryProfile['features']>;
 }
 
 export interface ProfileOverrideStore {
@@ -40,6 +42,7 @@ export function mergePatch(base: MarketPatch | undefined, patch: MarketPatch): M
     ...base, ...patch,
     feeSchedule: { ...(base?.feeSchedule), ...(patch.feeSchedule) },
     limits: { ...(base?.limits), ...(patch.limits) },
+    features: { ...(base?.features), ...(patch.features) },
   };
 }
 
@@ -48,8 +51,10 @@ export function applyPatch(p: CountryProfile, patch: MarketPatch): CountryProfil
   if (patch.enabled !== undefined) p.enabled = patch.enabled;
   if (patch.providerKey) p.providerKey = patch.providerKey;
   if (patch.providerEnv) p.providerEnv = patch.providerEnv;
+  if (patch.merchantModel) p.merchantModel = patch.merchantModel;
   if (patch.feeSchedule) p.feeSchedule = { ...p.feeSchedule, ...patch.feeSchedule };
   if (patch.limits) p.limits = { ...p.limits, ...patch.limits };
+  if (patch.features) p.features = { ...p.features, ...patch.features };
   return p;
 }
 

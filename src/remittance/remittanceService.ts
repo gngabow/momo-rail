@@ -123,4 +123,6 @@ export class RemittanceService {
 
   outboxFor(customerId: string): RemittanceClaim[] { return this.claims.sentBy(customerId); }
   inboxFor(country: string, msisdn: string): RemittanceClaim[] { return this.claims.reservedFor(country, msisdn); }
+  /** All still-reserved claims across the system (ops view). */
+  reservedClaims(): RemittanceClaim[] { return this.claims.list().filter((c) => c.status === 'reserved'); }
 }
