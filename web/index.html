@@ -66,6 +66,12 @@
   .foot{max-width:960px;margin:8px auto 30px;padding:0 16px;color:var(--muted);font-size:.75rem;line-height:1.5}
   .aedit{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
   .switch{display:inline-block}
+  .fieldbox{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:#fff}
+  .fieldbox:focus-within{border-color:var(--brand)}
+  .fieldbox .fi{width:28px;height:20px;border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.12);flex:none}
+  .fieldbox select,.fieldbox input{flex:1;border:none;outline:none;background:transparent;padding:12px 0;font-size:1rem;color:var(--ink)}
+  .fieldbox .prefix{color:var(--muted);font-weight:700;flex:none}
+  .fieldbox .chev{color:var(--muted);flex:none;pointer-events:none;margin-left:-6px}
   @media(max-width:640px){.actions{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:1fr}}
 </style>
 </head>
@@ -142,16 +148,26 @@ function renderGate(){
   const opts=enabled.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('');
   view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0">
     <h3>Sign in to your wallet</h3>
-    <div class="small muted">Enter your MoMo number and we'll send a one-time code.</div>
-    <label>Country</label><select id="gc" class="inp">${opts}</select>
-    <label>MoMo number</label><input id="gn" inputmode="numeric" placeholder="712345678">
+    <div class="small muted">Choose your country and enter your MoMo number — we'll send a one-time code.</div>
+    <label>Country</label>
+    <div class="fieldbox"><span class="fi" id="gcflag"></span><select id="gc">${opts}</select><span class="chev">▾</span></div>
+    <label>MoMo number</label>
+    <div class="fieldbox"><span class="fi" id="gnflag"></span><span class="prefix" id="gdial">+</span><input id="gn" inputmode="numeric" placeholder="712 345 678"></div>
     <div id="err"></div>
     <button class="btn" id="ggo">Send code</button>
     <div id="gadmin" style="margin-top:18px;background:var(--brand2);color:#fff;border-radius:10px;padding:13px 14px;text-align:center;font-weight:800;cursor:pointer;letter-spacing:.2px">Ops team? Admin sign-in →</div>
   </div>`;
-  const gsel=document.getElementById('gc'); if(gsel) gsel.value=state.cc;
+  const gc=document.getElementById('gc');
+  const syncFlag=()=>{
+    const code=gc.value.toLowerCase(); const m=enabled.find(x=>x.code===gc.value);
+    document.getElementById('gcflag').className='fi fi-'+code;
+    document.getElementById('gnflag').className='fi fi-'+code;
+    document.getElementById('gdial').textContent='+'+(m?m.dial:'');
+  };
+  gc.value=state.cc; syncFlag();
+  gc.onchange=()=>{ state.cc=gc.value; syncFlag(); };
   document.getElementById('ggo').onclick=async()=>{
-    const country=document.getElementById('gc').value, national=document.getElementById('gn').value.trim();
+    const country=gc.value, national=document.getElementById('gn').value.trim();
     if(!national)return err('Enter your number.');
     try{ const r=await POST('/api/auth/request-otp',{country,national}); gateCode(country,national,r.devCode); }
     catch(e){ err(e.message); }
