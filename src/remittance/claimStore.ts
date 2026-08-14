@@ -19,6 +19,10 @@ export interface RemittanceClaim {
   claimedAt?: number;
   deliveredLocal?: string;
   deliveredCurrency?: string;
+  // Outbound-to-international (non-Opco) claims: destCountry is 'INTL', delivered
+  // in USDT (no local conversion). recipientType labels C2C vs C2B.
+  recipientType?: 'person' | 'business';
+  destLabel?: string;
 }
 
 export interface ClaimSink {

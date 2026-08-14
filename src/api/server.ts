@@ -193,7 +193,9 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       if (b.intl) {
         const v = auth.verifyOtpIntl(String(b.msisdn || ''), String(b.code || ''));
-        return send(res, 200, { ...v, claimed: [] });
+        // deliver any outbound USDT reserved for this international number
+        const delivered = await remit.claimAllFor('INTL', v.msisdn, v.customerId);
+        return send(res, 200, { ...v, claimed: delivered.map((d) => d.delivered) });
       }
       const country = String(b.country || 'UG');
       const v = auth.verifyOtp(country, String(b.national || ''), String(b.code || ''));
@@ -498,6 +500,14 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/remit/send') {
         const r = await remit.send({ senderCustomerId: cid, destCountry: String(b.destCountry || 'UG'), destNational: String(b.destNational || ''), amountUsdt: String(b.amountUsdt) });
         logAct(cid, `Sent ${b.amountUsdt} USDT → +${r.claim.destMsisdn} · reserved (code ${r.claim.code})`, 'neg');
+        return send(res, 200, { claim: r.claim, estimate: r.estimate, wallet: await balances(cid, country) });
+      }
+      if (p === '/api/remit/send-intl') {
+        const r = await remit.sendIntl({
+          senderCustomerId: cid, destMsisdn: String(b.destMsisdn || ''), amountUsdt: String(b.amountUsdt),
+          recipientType: b.recipientType === 'business' ? 'business' : 'person', destLabel: b.destLabel ? String(b.destLabel) : undefined,
+        });
+        logAct(cid, `Sent ${b.amountUsdt} USDT abroad → +${r.claim.destMsisdn} (${r.claim.recipientType}) · reserved (code ${r.claim.code})`, 'neg');
         return send(res, 200, { claim: r.claim, estimate: r.estimate, wallet: await balances(cid, country) });
       }
       if (p === '/api/remit/claim') {

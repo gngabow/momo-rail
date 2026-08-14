@@ -592,22 +592,36 @@ function openModal(a){
       const r=await POST('/api/convert',{customer:CID,country:state.cc,direction:dir,amount:v});
       okmsg(`Converted — you received ${dir==='local_to_usdt'?fmtU(r.quote.net)+' USDT':fmt(r.quote.net,w.localCurrency)+' '+w.localCurrency}.`);setTimeout(close,1100);});}
   if(a==='remit'){
-    const opts=state.markets.map(m=>`<option value="${m.code}"${m.code!==state.cc?' selected':''}>${m.name} · ${m.ccy}</option>`).join('');
-    shell('Send abroad — reserve &amp; deliver',`<label>Destination country</label><select id="dc" class="inp">${opts}</select>
-      <label>Recipient MoMo number</label><input id="dn" placeholder="phone">
+    const opcoOpts=state.markets.map(m=>`<option value="o:${m.code}"${m.code!==state.cc?' selected':''}>${m.name} · ${m.ccy}</option>`).join('');
+    const intlOpts=INTL_COUNTRIES.map(c=>`<option value="i:${c.dial}:${c.code}">${c.name} (+${c.dial})</option>`).join('');
+    shell('Send abroad — reserve &amp; deliver',`<label>Destination</label>
+      <select id="dc" class="inp"><optgroup label="MoMo markets — delivered in local currency">${opcoOpts}</optgroup><optgroup label="International — delivered in USDT">${intlOpts}</optgroup></select>
+      <div id="rtype" style="display:none"><label>Recipient</label><div class="seg"><button class="on" data-r="person">Person (C2C)</button><button data-r="business">Business (C2B)</button></div></div>
+      <label>Recipient number</label><input id="dn" placeholder="phone">
       <label>Amount (USDT)</label><input id="amt" inputmode="decimal" placeholder="50">
-      <div class="quote" id="q"><div class="muted small">They receive local currency at the destination rate.</div></div>
-      <div class="small muted" style="margin-top:8px">Funds are reserved from your USDT now and delivered when the recipient signs in — even if they aren't registered yet.</div>
+      <div class="quote" id="q"><div class="muted small">Pick a destination and amount for a live quote.</div></div>
+      <div class="small muted" style="margin-top:8px">Reserved from your USDT now and delivered when the recipient signs in — even if they aren't registered yet. International recipients receive USDT.</div>
       <div id="err"></div><button class="btn" id="go">Reserve &amp; send</button>`);
-    const dc=document.getElementById('dc'),amt=document.getElementById('amt');
-    const quote=()=>{const v=+amt.value,m=state.markets.find(x=>x.code===dc.value),q=document.getElementById('q');
-      if(!(v>0)||!m){q.innerHTML='<div class="muted small">They receive local currency at the destination rate.</div>';return;}
-      const g=v*+m.rate,fe=g*0.02,net=g-fe;
-      q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(m.rate,m.ccy)} ${m.ccy}</span></div><div class="qr"><span>Remittance fee (2%)</span><span>${fmt(fe,m.ccy)} ${m.ccy}</span></div><div class="qr tot"><span>They receive</span><span>${fmt(net,m.ccy)} ${m.ccy}</span></div>`;};
+    const dc=document.getElementById('dc'),amt=document.getElementById('amt'),rt=document.getElementById('rtype');
+    let rtype='person';
+    const isIntl=()=>dc.value.startsWith('i:');
+    const quote=()=>{const v=+amt.value,q=document.getElementById('q');
+      rt.style.display=isIntl()?'block':'none';
+      if(!(v>0)){q.innerHTML='<div class="muted small">Pick a destination and amount for a live quote.</div>';return;}
+      if(isIntl()){const fe=v*0.02,net=v-fe;
+        q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Outbound fee (2%)</span><span>${fmtU(fe)} USDT</span></div><div class="qr tot"><span>They receive</span><span>${fmtU(net)} USDT</span></div>`;
+      }else{const m=state.markets.find(x=>x.code===dc.value.slice(2));if(!m){q.innerHTML='';return;}
+        const g=v*+m.rate,fe=g*0.02,net=g-fe;
+        q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(m.rate,m.ccy)} ${m.ccy}</span></div><div class="qr"><span>Remittance fee (2%)</span><span>${fmt(fe,m.ccy)} ${m.ccy}</span></div><div class="qr tot"><span>They receive</span><span>${fmt(net,m.ccy)} ${m.ccy}</span></div>`;}};
     dc.onchange=quote;amt.oninput=quote;
-    act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');
-      const r=await POST('/api/remit/send',{customer:CID,destCountry:dc.value,destNational:document.getElementById('dn').value,amountUsdt:v});
-      okmsg(`Reserved ${fmtU(v)} USDT for +${r.claim.destMsisdn}. They receive ${fmt(r.estimate.net,r.estimate.currency)} ${r.estimate.currency} on sign-in. Claim code: ${r.claim.code}`);setTimeout(close,2200);});}
+    rt.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{rt.querySelectorAll('.seg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');rtype=b.dataset.r;});
+    act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');const num=document.getElementById('dn').value;
+      if(isIntl()){const dial=dc.value.split(':')[1];const msisdn=dial+String(num).replace(/\D/g,'').replace(/^0+/,'');
+        if(!String(num).replace(/\D/g,''))throw new Error('Enter the recipient number.');
+        const r=await POST('/api/remit/send-intl',{customer:CID,destMsisdn:msisdn,amountUsdt:v,recipientType:rtype});
+        okmsg(`Reserved ${fmtU(v)} USDT for +${r.claim.destMsisdn} (${r.claim.recipientType}). They receive ${fmtU(r.estimate.net)} USDT on sign-in. Code ${r.claim.code}`);setTimeout(close,2400);
+      }else{const r=await POST('/api/remit/send',{customer:CID,destCountry:dc.value.slice(2),destNational:num,amountUsdt:v});
+        okmsg(`Reserved ${fmtU(v)} USDT for +${r.claim.destMsisdn}. They receive ${fmt(r.estimate.net,r.estimate.currency)} ${r.estimate.currency} on sign-in. Claim code: ${r.claim.code}`);setTimeout(close,2200);}});}
   if(a==='bill'){
     shell(`Pay a bill — ${w.name}`,`<label>Biller</label><select id="bl" class="inp"><option>Loading…</option></select>
       <label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="1000">

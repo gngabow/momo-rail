@@ -10,6 +10,8 @@ import { toMinor, fromMinor, roundTo } from '../ledger/money';
 import { ClaimStore, RemittanceClaim } from './claimStore';
 
 const REMIT_ESCROW = 'sys-USDT-remit-escrow';
+const USDT_FEEREV = 'sys-USDT-feerev';
+const OUTBOUND_INTL_FEE_RATE_DEFAULT = 0.01; // used when the sender isn't an Opco customer
 
 export class RemittanceError extends Error {}
 
@@ -54,6 +56,60 @@ export class RemittanceService {
     };
   }
 
+  private normaliseMsisdn(raw: string): string {
+    return String(raw || '').replace(/\D/g, '').replace(/^0+/, '');
+  }
+
+  /** Outbound fee rate: the sender's Opco market's remittance rate, else a default. */
+  private outboundFeeRate(senderCustomerId: string): number {
+    const m = /^cust:([A-Z]{2}):/.exec(senderCustomerId);
+    if (m) { try { return this.registry.get(m[1]).feeSchedule.remittanceRate; } catch { /* not a market */ } }
+    return OUTBOUND_INTL_FEE_RATE_DEFAULT;
+  }
+
+  /** USDT-out delivery: the recipient receives USDT (no local conversion), less an outbound fee. */
+  quoteOutboundUsdt(amountUsdt: string, feeRate: number): DeliveryQuote {
+    const Uminor = toMinor(roundTo(Number(amountUsdt), 'USDT'), 'USDT');
+    const feeMinor = toMinor(roundTo(Number(fromMinor(Uminor, 'USDT')) * feeRate, 'USDT'), 'USDT');
+    const netMinor = Uminor - feeMinor;
+    return {
+      currency: 'USDT', rateLocalPerUsdt: '1',
+      gross: fromMinor(Uminor, 'USDT'), fee: fromMinor(feeMinor, 'USDT'),
+      feeRate, net: fromMinor(netMinor, 'USDT'),
+    };
+  }
+
+  /** Outbound remittance to a non-Opco (international) recipient, delivered in USDT.
+   * Covers C2C (a person's USDT account) and C2B (a business's USDT wallet) — the
+   * money movement is identical; recipientType only labels it. Gated on the sender
+   * market's `outboundRemittance` feature when the sender is an Opco customer. */
+  async sendIntl(p: { senderCustomerId: string; destMsisdn: string; amountUsdt: string; recipientType?: 'person' | 'business'; destLabel?: string }): Promise<{ claim: RemittanceClaim; estimate: DeliveryQuote }> {
+    const sm = /^cust:([A-Z]{2}):/.exec(p.senderCustomerId);
+    if (sm) { try { const prof = this.registry.get(sm[1]); if (!prof.features.outboundRemittance) throw new RemittanceError(`Outbound remittance is not enabled for ${prof.code}`); } catch (e) { if (e instanceof RemittanceError) throw e; } }
+    const msisdn = this.normaliseMsisdn(p.destMsisdn);
+    if (!msisdn) throw new RemittanceError('A destination number is required');
+    const senderUsdt = await provisionWallet(this.ledger, p.senderCustomerId, 'USDT', null);
+    await this.ledger.assertSufficientBalance(senderUsdt.id, p.amountUsdt);
+    const id = newId();
+
+    await this.ledger.postEntry({
+      entryType: 'remit_reserve',
+      idempotencyKey: `remit-res-${id}`,
+      lines: [
+        { accountId: senderUsdt.id, amount: `-${p.amountUsdt}` },
+        { accountId: REMIT_ESCROW, amount: p.amountUsdt },
+      ],
+    });
+
+    const claim = this.claims.add({
+      id, code: this.shortCode(), senderCustomerId: p.senderCustomerId,
+      destCountry: 'INTL', destMsisdn: msisdn, amountUsdt: p.amountUsdt,
+      status: 'reserved', createdAt: Date.now(),
+      recipientType: p.recipientType || 'person', destLabel: p.destLabel,
+    });
+    return { claim, estimate: this.quoteOutboundUsdt(p.amountUsdt, this.outboundFeeRate(p.senderCustomerId)) };
+  }
+
   /** Reserve funds for a recipient phone number. */
   async send(p: { senderCustomerId: string; destCountry: string; destNational: string; amountUsdt: string }): Promise<{ claim: RemittanceClaim; estimate: DeliveryQuote }> {
     const dest = this.registry.require(p.destCountry);
@@ -80,8 +136,26 @@ export class RemittanceService {
     return { claim, estimate: await this.quoteDelivery(dest.code, p.amountUsdt) };
   }
 
+  /** Deliver an outbound-international claim in USDT (no local conversion). */
+  private async deliverIntl(c: RemittanceClaim, recipientCustomerId?: string): Promise<{ claim: RemittanceClaim; delivered: { amount: string; currency: string } }> {
+    const rcid = recipientCustomerId || customerIdFor('INTL', c.destMsisdn);
+    const wallet = await provisionWallet(this.ledger, rcid, 'USDT', null);
+    const q = this.quoteOutboundUsdt(c.amountUsdt, this.outboundFeeRate(c.senderCustomerId));
+    const lines = [
+      { accountId: REMIT_ESCROW, amount: `-${c.amountUsdt}` },
+      { accountId: wallet.id, amount: q.net },
+    ];
+    if (Number(q.fee) > 0) lines.push({ accountId: USDT_FEEREV, amount: q.fee });
+    await this.ledger.postEntry({ entryType: 'remit_deliver', idempotencyKey: `remit-del-${c.id}`, lines });
+    c.status = 'claimed'; c.claimedAt = Date.now();
+    c.deliveredLocal = q.net; c.deliveredCurrency = 'USDT';
+    this.claims.update(c);
+    return { claim: c, delivered: { amount: q.net, currency: 'USDT' } };
+  }
+
   /** Deliver a single reserved claim to the recipient's wallet. */
   private async deliver(c: RemittanceClaim, recipientCustomerId?: string): Promise<{ claim: RemittanceClaim; delivered: { amount: string; currency: string } }> {
+    if (c.destCountry === 'INTL') return this.deliverIntl(c, recipientCustomerId);
     const dest = this.registry.require(c.destCountry);
     const rcid = recipientCustomerId || customerIdFor(c.destCountry, c.destMsisdn);
     const wallet = await provisionWallet(this.ledger, rcid, dest.localCurrency, dest.code);
