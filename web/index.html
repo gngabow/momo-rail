@@ -45,11 +45,7 @@
   .pill{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--ice);color:var(--brand)}
   .pill.cfg{background:#FFF6E5;color:#8A5A00}.pill.off{background:#FBE9E9;color:#B23A3A}
   .pill.res{background:#FFF6E5;color:#8A5A00}.pill.cl{background:#E7F4EC;color:#0F7B52}
-  .mchips{display:flex;flex-wrap:wrap;gap:6px}
-  .mchip{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-weight:700;color:var(--brand);background:var(--ice);border:1px solid transparent;padding:3px 9px;border-radius:20px}
-  .mchip .fi{width:20px;height:14px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1)}
-  .mchip.off{color:#B23A3A;background:#FBE9E9;opacity:.85}
-  .row .fi{width:18px;height:13px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1);vertical-align:middle}
+  .row .fi{width:20px;height:14px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1);vertical-align:middle}
   .backdrop{position:fixed;inset:0;background:rgba(10,20,25,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
   .modal{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.25);max-height:92vh;overflow:auto}
   .modal h3{font-size:1.15rem}
@@ -355,16 +351,16 @@ async function renderAdmin(){
     await loadMarkets();
   }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
 
-  const flagStrip=state.markets.map(m=>`<span class="mchip ${m.enabled?'':'off'}" title="${m.name} · ${m.ccy}${m.enabled?'':' · disabled'}"><span class="fi fi-${m.code.toLowerCase()}"></span>${m.code}</span>`).join('');
+  // Map each currency to a representative Opco flag (first market using it; XOF→CI, XAF→CM).
+  const ccyFlag={}; state.markets.forEach(m=>{ if(!ccyFlag[m.ccy]) ccyFlag[m.ccy]=m.code; });
+  const flagFor=ccy=>ccyFlag[ccy]?`<span class="fi fi-${ccyFlag[ccy].toLowerCase()}"></span> `:'';
   const overview=`<div class="panel"><h3>Overview</h3><div style="display:flex;gap:10px;flex-wrap:wrap">
-    ${tile('Storage',ov.store)}${tile('Markets enabled',ov.enabled+' / '+ov.markets)}${tile('Live on MTN',ov.liveOnMtn)}${tile('Currencies',ov.currencies)}${tile('Wallets',ov.walletsSeeded)}</div>
-    <div class="small muted" style="text-transform:uppercase;letter-spacing:.4px;font-size:.64rem;margin:12px 0 6px">Opco markets</div>
-    <div class="mchips">${flagStrip}</div></div>`;
+    ${tile('Storage',ov.store)}${tile('Markets enabled',ov.enabled+' / '+ov.markets)}${tile('Live on MTN',ov.liveOnMtn)}${tile('Currencies',ov.currencies)}${tile('Wallets',ov.walletsSeeded)}</div></div>`;
   const treasury=`<div class="panel"><h3>Treasury — system balances</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${tile('USDT hot wallet',fmtU(tr.usdt.hotWallet)+' USDT')}${tile('USDT fee revenue',fmtU(tr.usdt.feeRevenue)+' USDT')}${tile('Remittance escrow',fmtU(tr.usdt.remitEscrow)+' USDT')}</div>
     <div style="overflow:auto"><table><thead><tr><th>Currency</th><th>Float</th><th>Fee revenue</th><th>Suspense</th><th>Biller pool</th></tr></thead><tbody>
-    ${tr.local.map(r=>`<tr><td>${r.currency}</td><td>${fmt(r.float,r.currency)}</td><td>${fmt(r.feeRevenue,r.currency)}</td><td>${fmt(r.suspense,r.currency)}</td><td>${fmt(r.biller,r.currency)}</td></tr>`).join('')}
+    ${tr.local.map(r=>`<tr><td style="white-space:nowrap">${flagFor(r.currency)}${r.currency}</td><td>${fmt(r.float,r.currency)}</td><td>${fmt(r.feeRevenue,r.currency)}</td><td>${fmt(r.suspense,r.currency)}</td><td>${fmt(r.biller,r.currency)}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="small muted" style="margin-top:6px">Float and hot-wallet balances are negative by convention — they're the pool that funds customer wallets (a liability owed out).</div></div>`;
   const inflight=`<div class="panel"><h3>In-flight</h3>
