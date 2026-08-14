@@ -12,6 +12,11 @@ import { FixedFxRateProvider } from '../fx/fxRateProvider';
 import { RailService } from '../rail/railService';
 import { PayrollService } from '../payroll/payrollService';
 import { provisionWallet } from '../wallet/walletService';
+import { PendingSettlements } from '../rail/settlement';
+import { PgPendingSink } from '../rail/pgPending';
+import { AuthService, AuthError } from '../auth/authService';
+import { OpsService, InMemoryOverrideStore, ProfileOverrideStore } from '../ops/opsService';
+import { PgOverrideStore } from '../ops/pgOverrideStore';
 
 /**
  * HTTP server (Node's built-in `http`) that puts the tested momo-rail engine
@@ -30,6 +35,8 @@ let ledger: LedgerStore;
 let registry: CountryRegistry;
 let rail: RailService;
 let payroll: PayrollService;
+let auth: AuthService;
+let ops: OpsService;
 const rates: Record<string, string> = {};
 
 function makeStore(): LedgerStore {
@@ -81,6 +88,18 @@ function send(res: http.ServerResponse, code: number, obj: unknown) {
   res.end(body);
 }
 
+function bearer(req: http.IncomingMessage): string | undefined {
+  const h = req.headers['authorization'];
+  if (!h) return undefined;
+  const m = /^Bearer\s+(.+)$/i.exec(String(h));
+  return m ? m[1] : undefined;
+}
+/** A resolved customer id: the signed-in customer's, else the caller-supplied demo id. */
+function customerId(req: http.IncomingMessage, fallback: string): string {
+  const s = auth.resolve(bearer(req));
+  return s && s.kind === 'customer' ? s.subject : fallback;
+}
+
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
     let d = '';
@@ -119,16 +138,62 @@ const server = http.createServer(async (req, res) => {
       })));
     }
     if (p === '/api/wallet') {
-      const cid = String(q.get('customer') || 'demo');
+      const cid = customerId(req, String(q.get('customer') || 'demo'));
       return send(res, 200, await balances(cid, String(q.get('country') || 'UG')));
     }
     if (p === '/api/activity') {
-      const cid = String(q.get('customer') || 'demo');
+      const cid = customerId(req, String(q.get('customer') || 'demo'));
       return send(res, 200, activity.get(cid) || []);
     }
     if (p === '/api/pending') {
-      const cid = String(q.get('customer') || 'demo');
+      const cid = customerId(req, String(q.get('customer') || 'demo'));
       return send(res, 200, rail.pendingStore().list().filter((x) => x.customerId === cid));
+    }
+
+    // ---- Auth: customer phone + OTP ----
+    if (p === '/api/auth/request-otp' && req.method === 'POST') {
+      const b = await readBody(req);
+      return send(res, 200, auth.requestOtp(String(b.country || 'UG'), String(b.national || '')));
+    }
+    if (p === '/api/auth/verify-otp' && req.method === 'POST') {
+      const b = await readBody(req);
+      return send(res, 200, auth.verifyOtp(String(b.country || 'UG'), String(b.national || ''), String(b.code || '')));
+    }
+    if (p === '/api/auth/logout' && req.method === 'POST') {
+      auth.logout(bearer(req));
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/auth/me') {
+      const s = auth.resolve(bearer(req));
+      return send(res, 200, s ? { authenticated: true, kind: s.kind, subject: s.subject } : { authenticated: false });
+    }
+
+    // ---- Admin sign-in (unauthenticated) ----
+    if (p === '/api/admin/login' && req.method === 'POST') {
+      const b = await readBody(req);
+      return send(res, 200, auth.adminLogin(String(b.username || ''), String(b.password || '')));
+    }
+    // ---- Admin + ops console (admin session required) ----
+    if (p.startsWith('/api/admin/')) {
+      const s = auth.resolve(bearer(req));
+      if (!s || s.kind !== 'admin') return send(res, 401, { error: 'admin auth required' });
+      if (p === '/api/admin/markets') {
+        return send(res, 200, registry.list().map((m) => ({
+          code: m.code, name: m.displayName, enabled: m.enabled, ccy: m.localCurrency,
+          providerKey: m.providerKey, providerEnv: m.providerEnv,
+          feeSchedule: m.feeSchedule, limits: m.limits, operator: m.momoOperator,
+        })));
+      }
+      const mk = /^\/api\/admin\/market\/([A-Za-z]{2})$/.exec(p);
+      if (mk && req.method === 'POST') {
+        const b = await readBody(req);
+        const u = await ops.updateMarket(mk[1], {
+          enabled: b.enabled, providerKey: b.providerKey, providerEnv: b.providerEnv,
+          feeSchedule: b.feeSchedule, limits: b.limits,
+        });
+        return send(res, 200, { updated: { code: u.code, enabled: u.enabled, providerKey: u.providerKey, providerEnv: u.providerEnv, feeSchedule: u.feeSchedule, limits: u.limits } });
+      }
+      return send(res, 404, { error: 'unknown admin route' });
     }
 
     // MoMo provider callback — MTN posts the terminal state here (X-Callback-Url).
@@ -168,7 +233,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST') {
       const b = await readBody(req);
-      const cid = String(b.customer || 'demo');
+      const cid = customerId(req, String(b.customer || 'demo'));
       const country = String(b.country || 'UG');
       await seed(cid);
       const prof = registry.require(country);
@@ -200,17 +265,41 @@ const server = http.createServer(async (req, res) => {
 
     send(res, 404, { error: 'Not found' });
   } catch (e: any) {
-    send(res, 400, { error: e && e.message ? e.message : String(e) });
+    const code = e instanceof AuthError ? 401 : 400;
+    send(res, code, { error: e && e.message ? e.message : String(e) });
   }
 });
 
 async function start() {
+  const url = process.env.DATABASE_URL;
   const store = makeStore();
   const boot = await bootstrap(store);
   ledger = boot.ledger;
   registry = boot.registry;
-  rail = new RailService(ledger, registry, providers, fx);
+
+  // Durable pending settlements (write-through) when a DB is configured.
+  let pending: PendingSettlements;
+  if (url) {
+    const sink = new PgPendingSink(url);
+    await sink.init();
+    pending = new PendingSettlements(sink);
+    const n = await pending.hydrate();
+    if (n) console.log(`momo-rail: hydrated ${n} in-flight settlement(s) from Postgres`);
+  } else {
+    pending = new PendingSettlements();
+  }
+
+  rail = new RailService(ledger, registry, providers, fx, pending);
   payroll = new PayrollService(ledger, registry, providers);
+
+  // Ops-console overrides (durable market edits) + auth.
+  const overrideStore: ProfileOverrideStore = url ? new PgOverrideStore(url) : new InMemoryOverrideStore();
+  if (overrideStore.init) await overrideStore.init();
+  ops = new OpsService(registry, overrideStore);
+  const applied = await ops.loadOverrides();
+  if (applied) console.log(`momo-rail: applied ${applied} ops override(s)`);
+  auth = new AuthService(registry);
+
   for (const pr of registry.list()) {
     if (!rates[pr.localCurrency]) rates[pr.localCurrency] = await fx.getLocalPerUsdt(pr.localCurrency);
   }

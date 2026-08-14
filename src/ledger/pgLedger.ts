@@ -31,7 +31,7 @@ export class PgLedger implements LedgerStore {
     const { Pool } = require('pg');
     const ssl = /[?&]sslmode=require/.test(this.connectionString) || process.env.PGSSL === 'require'
       ? { rejectUnauthorized: false } : undefined;
-    this.pool = new Pool({ connectionString: this.connectionString, ssl });
+    this.pool = new Pool({ connectionString: this.connectionString, ssl, max: 6 });
     await this.runMigrations();
   }
 

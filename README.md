@@ -155,6 +155,34 @@ idempotent.
 > lost on a restart mid-flight (recoverable via the status-poll endpoint).
 > Persisting that map is a small follow-up.
 
+## Auth & the ops console
+
+**Customer sign-in (phone + OTP).** `POST /api/auth/request-otp` `{country,national}`
+issues a one-time code; `POST /api/auth/verify-otp` `{country,national,code}`
+returns a bearer **token** and the derived `customerId` (`cust:<CC>:<msisdn>` —
+the wallet is tied to the phone number, not a browser). Pass the token as
+`Authorization: Bearer <token>` on `/api/wallet`, `/api/deposit`, etc. and the
+session's customer is used instead of the anonymous demo id. `GET /api/auth/me`
+reflects the session; `POST /api/auth/logout` ends it. With no SMS provider
+wired the code is returned in the response (and logged) so the demo completes;
+set `SMS_PROVIDER` to switch to real delivery (and stop returning it).
+
+**Admin + writing ops console.** `POST /api/admin/login` `{username,password}`
+(checked against `ADMIN_USERNAME` / `ADMIN_PASSWORD` env — never in code)
+returns an admin token. Admin-gated routes:
+
+- `GET /api/admin/markets` — every market's live config.
+- `POST /api/admin/market/:code` — edit a market: `{enabled, providerKey,
+  providerEnv, feeSchedule, limits}`. Takes effect **immediately** on the live
+  registry (e.g. disable a market, bump a fee, flip an adapter mock↔live) and is
+  **persisted** as a per-market override (Postgres when `DATABASE_URL` is set,
+  in-memory otherwise), re-applied over the seeded defaults on the next boot.
+
+Sessions are in-memory (a restart signs everyone out — a `sessions` table is a
+later hardening). In-flight **pending settlements** are now persisted
+(write-through) when a database is configured, and hydrated on boot, so a
+restart mid-flight can still settle a late callback.
+
 ## Going live on real MTN MoMo (sandbox)
 
 The demo runs on the mock adapter with **no env at all**. Flipping a market onto

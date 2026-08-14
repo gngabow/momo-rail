@@ -27,12 +27,35 @@ export interface PendingSettlement {
   reason?: string;
 }
 
+/**
+ * Optional durable sink. The in-memory map stays authoritative at runtime (so
+ * reads remain synchronous with no churn on the rail's hot path); the sink is
+ * written through best-effort and hydrated on boot. Postgres implementation:
+ * src/rail/pgPending.ts.
+ */
+export interface PendingSink {
+  persist(item: PendingSettlement): Promise<void>;   // upsert by reference
+  loadOpen(): Promise<PendingSettlement[]>;           // still-pending items, for boot hydration
+  init?(): Promise<void>;
+}
+
 export class PendingSettlements {
   private byRef = new Map<string, PendingSettlement>();
+
+  constructor(private readonly sink?: PendingSink) {}
+
+  /** Load still-open items from the durable sink (call once on boot). */
+  async hydrate(): Promise<number> {
+    if (!this.sink) return 0;
+    const open = await this.sink.loadOpen();
+    for (const it of open) this.byRef.set(it.reference, it);
+    return open.length;
+  }
 
   record(p: Omit<PendingSettlement, 'status' | 'createdAt'>, now: number): PendingSettlement {
     const item: PendingSettlement = { ...p, status: 'pending', createdAt: now };
     this.byRef.set(p.reference, item);
+    this.flush(item);
     return item;
   }
 
@@ -47,10 +70,17 @@ export class PendingSettlements {
     item.settledAt = now;
     if (providerRef) item.providerRef = providerRef;
     if (reason) item.reason = reason;
+    this.flush(item);
     return item;
   }
 
   list(): PendingSettlement[] {
     return [...this.byRef.values()];
+  }
+
+  /** Best-effort write-through; a sink failure never breaks the in-memory path. */
+  private flush(item: PendingSettlement): void {
+    if (!this.sink) return;
+    this.sink.persist({ ...item }).catch((e) => console.error('[pending] persist failed:', e && e.message ? e.message : e));
   }
 }

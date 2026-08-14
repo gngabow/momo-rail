@@ -12,6 +12,7 @@
     "test": "jest --runInBand",
     "verify": "ts-node -T tests/verify.ts",
     "verify:async": "ts-node -T tests/verify-async.ts",
+    "verify:auth": "ts-node -T tests/verify-auth.ts",
     "demo": "ts-node -T src/demo.ts",
     "momo:provision": "ts-node -T scripts/provision-momo-sandbox.ts",
     "db:migrate": "ts-node -T scripts/db-migrate.ts",
