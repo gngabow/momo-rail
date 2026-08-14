@@ -27,6 +27,15 @@ export function customerIdFor(country: string, msisdn: string): string {
   return `cust:${country.toUpperCase()}:${msisdn}`;
 }
 
+/** True for international (non-Opco, USDT-only) customers. */
+export function isIntlCustomer(customerId: string): boolean {
+  return customerId.startsWith('cust:INTL:');
+}
+
+function normaliseMsisdn(raw: string): string {
+  return String(raw || '').replace(/\D/g, '').replace(/^0+/, '');
+}
+
 export class AuthService {
   private otps = new Map<string, { code: string; expiresAt: number; attempts: number }>();
   private revoked = new Set<string>();
@@ -73,6 +82,33 @@ export class AuthService {
     const customerId = customerIdFor(country, msisdn);
     const token = this.issue(customerId, 'customer');
     return { token, customerId, msisdn };
+  }
+
+  /** International (non-Opco) sign-in: the number isn't a MoMo-market number, so
+   * there's no CountryProfile — the account is USDT-only. Keyed on the raw MSISDN. */
+  requestOtpIntl(rawMsisdn: string): { sent: true; to: string; expiresInSec: number; devCode?: string; intl: true } {
+    const msisdn = normaliseMsisdn(rawMsisdn);
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    this.otps.set(this.otpKey('INTL', msisdn), { code, expiresAt: Date.now() + OTP_TTL_MS, attempts: 0 });
+    const devReturn = !process.env.SMS_PROVIDER;
+    if (devReturn) console.log(`[auth] INTL OTP for +${msisdn}: ${code} (dev — no SMS provider)`);
+    return { sent: true, to: `+${msisdn}`, expiresInSec: OTP_TTL_MS / 1000, devCode: devReturn ? code : undefined, intl: true };
+  }
+
+  verifyOtpIntl(rawMsisdn: string, code: string): { token: string; customerId: string; msisdn: string; intl: true } {
+    const msisdn = normaliseMsisdn(rawMsisdn);
+    const key = this.otpKey('INTL', msisdn);
+    const rec = this.otps.get(key);
+    if (!rec) throw new AuthError('No OTP requested for this number');
+    if (Date.now() > rec.expiresAt) { this.otps.delete(key); throw new AuthError('OTP expired — request a new one'); }
+    rec.attempts++;
+    if (rec.attempts > OTP_MAX_ATTEMPTS) { this.otps.delete(key); throw new AuthError('Too many attempts — request a new OTP'); }
+    if (!timingSafeEqualStr(String(code), rec.code)) throw new AuthError('Incorrect code');
+
+    this.otps.delete(key);
+    const customerId = customerIdFor('INTL', msisdn);
+    const token = this.issue(customerId, 'customer');
+    return { token, customerId, msisdn, intl: true };
   }
 
   /** Admin sign-in against env credentials. */

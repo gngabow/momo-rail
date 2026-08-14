@@ -14,7 +14,7 @@ import { PayrollService } from '../payroll/payrollService';
 import { provisionWallet } from '../wallet/walletService';
 import { PendingSettlements } from '../rail/settlement';
 import { PgPendingSink } from '../rail/pgPending';
-import { AuthService, AuthError } from '../auth/authService';
+import { AuthService, AuthError, isIntlCustomer } from '../auth/authService';
 import { OpsService, InMemoryOverrideStore, ProfileOverrideStore } from '../ops/opsService';
 import { PgOverrideStore } from '../ops/pgOverrideStore';
 import { ClaimStore } from '../remittance/claimStore';
@@ -68,7 +68,9 @@ async function seed(cid: string) {
   if (seeded.has(cid)) return;
   seeded.add(cid);
   const uw = await provisionWallet(ledger, cid, 'USDT', null);
-  await ledger.postEntry({ entryType: 'demo_seed', idempotencyKey: `seed-USDT-${cid}`, lines: [{ accountId: 'sys-USDT-hot', amount: '-250' }, { accountId: uw.id, amount: '250' }] });
+  const usdtSeed = isIntlCustomer(cid) ? '2500' : '250';
+  await ledger.postEntry({ entryType: 'demo_seed', idempotencyKey: `seed-USDT-${cid}`, lines: [{ accountId: 'sys-USDT-hot', amount: `-${usdtSeed}` }, { accountId: uw.id, amount: usdtSeed }] });
+  if (isIntlCustomer(cid)) return; // international customers hold USDT only (no local Opco wallet)
   const starters: [string, string, string][] = [['UG', 'UGX', '400000'], ['KE', 'KES', '15000']];
   for (const [code, ccy, amt] of starters) {
     const p = registry.get(code);
@@ -158,18 +160,29 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, rail.pendingStore().list().filter((x) => x.customerId === cid));
     }
 
-    // ---- Auth: customer phone + OTP ----
+    // ---- Auth: customer phone + OTP (local Opco or international USDT-only) ----
     if (p === '/api/auth/request-otp' && req.method === 'POST') {
       const b = await readBody(req);
+      if (b.intl) return send(res, 200, auth.requestOtpIntl(String(b.msisdn || '')));
       return send(res, 200, auth.requestOtp(String(b.country || 'UG'), String(b.national || '')));
     }
     if (p === '/api/auth/verify-otp' && req.method === 'POST') {
       const b = await readBody(req);
+      if (b.intl) {
+        const v = auth.verifyOtpIntl(String(b.msisdn || ''), String(b.code || ''));
+        return send(res, 200, { ...v, claimed: [] });
+      }
       const country = String(b.country || 'UG');
       const v = auth.verifyOtp(country, String(b.national || ''), String(b.code || ''));
       // reserve-now, deliver-on-signup: hand over anything reserved for this number.
       const delivered = await remit.claimAllFor(country, v.msisdn, v.customerId);
       return send(res, 200, { ...v, claimed: delivered.map((d) => d.delivered) });
+    }
+    if (p === '/api/usdt-balance') {
+      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      await seed(cid);
+      const uw = await ledger.findCustomerWallet(cid, 'USDT');
+      return send(res, 200, { usdt: uw ? (await ledger.getBalance(uw.id)).balance : '0.000000', intl: isIntlCustomer(cid) });
     }
     if (p === '/api/auth/logout' && req.method === 'POST') {
       auth.logout(bearer(req));
@@ -324,6 +337,13 @@ const server = http.createServer(async (req, res) => {
       await seed(cid);
       const prof = registry.require(country);
 
+      if (p === '/api/usdt/topup') {
+        const uw = await provisionWallet(ledger, cid, 'USDT', null);
+        const amt = String(b.amount);
+        await ledger.postEntry({ entryType: 'usdt_topup', lines: [{ accountId: 'sys-USDT-hot', amount: `-${amt}` }, { accountId: uw.id, amount: amt }] });
+        logAct(cid, `Added ${amt} USDT`, 'pos');
+        return send(res, 200, { usdt: (await ledger.getBalance(uw.id)).balance });
+      }
       if (p === '/api/deposit') {
         const r = await rail.deposit(country, { customerId: cid, national: b.national || '700000001', amountLocal: String(b.amount) });
         if (r.status === 'completed') logAct(cid, `Cash in — ${b.amount} ${prof.localCurrency}`, 'pos');

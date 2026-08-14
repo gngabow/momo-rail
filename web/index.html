@@ -129,11 +129,22 @@ const cselEl=document.getElementById('csel');
 function route(){
   renderAuth();
   if(ADMIN){ cselEl.style.display='none'; renderAdmin(); return; }
-  if(TOKEN&&ME){ cselEl.style.display='flex'; enterApp(); return; }
+  if(TOKEN&&ME){ if(ME.intl){ cselEl.style.display='none'; enterIntl(); } else { cselEl.style.display='flex'; enterApp(); } return; }
   cselEl.style.display='none'; renderGate();
 }
 async function enterApp(){ try{ await loadWallet(); await loadActivity(); renderWallet(); }catch(e){ clearCustomer(); route(); } }
-async function refresh(){ if(ADMIN){renderAdmin();return;} if(TOKEN&&ME){await loadWallet();await loadActivity();renderWallet();}else{route();} }
+async function enterIntl(){ try{ const w=await api(`/api/usdt-balance?customer=${CID}`); state.usdt=w.usdt; state.activity=await api(`/api/activity?customer=${CID}`); renderIntlHome(); }catch(e){ clearCustomer(); route(); } }
+async function refresh(){ if(ADMIN){renderAdmin();return;} if(TOKEN&&ME){ if(ME.intl){await enterIntl();} else {await loadWallet();await loadActivity();renderWallet();} } else {route();} }
+// A non-Opco number (international format, code not one of our markets) → USDT-only account.
+function classifyNumber(selectedOpco, typed){
+  const digits=(typed||'').replace(/\D/g,'').replace(/^0+/,'');
+  if(/^\s*(\+|00)/.test(typed)){
+    const match=state.markets.map(m=>m.dial).filter(d=>digits.startsWith(d)).sort((a,b)=>b.length-a.length)[0];
+    if(match){ const m=state.markets.find(x=>x.dial===match); return {intl:false,country:m.code,national:digits.slice(match.length)}; }
+    return {intl:true,msisdn:digits};
+  }
+  return {intl:false,country:selectedOpco,national:digits};
+}
 function renderAuth(){
   const el=document.getElementById('authbox');
   if(ADMIN){el.innerHTML=`<span class="small" style="color:#bfe4dc">🛠 Admin</span> <button class="lnk" id="so">Sign out</button>`;el.querySelector('#so').onclick=adminSignOut;return;}
@@ -148,7 +159,7 @@ function renderGate(){
   const opts=enabled.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('');
   view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0">
     <h3>Sign in to your wallet</h3>
-    <div class="small muted">Choose your country and enter your MoMo number — we'll send a one-time code.</div>
+    <div class="small muted">Choose your country and enter your MoMo number — we'll send a one-time code. Sending from abroad? Enter your full number with country code (e.g. +44…).</div>
     <label>Country</label>
     <div class="fieldbox"><span class="fi" id="gcflag"></span><select id="gc">${opts}</select><span class="chev">▾</span></div>
     <label>MoMo number</label>
@@ -167,17 +178,20 @@ function renderGate(){
   gc.value=state.cc; syncFlag();
   gc.onchange=()=>{ state.cc=gc.value; syncFlag(); };
   document.getElementById('ggo').onclick=async()=>{
-    const country=gc.value, national=document.getElementById('gn').value.trim();
-    if(!national)return err('Enter your number.');
-    try{ const r=await POST('/api/auth/request-otp',{country,national}); gateCode(country,national,r.devCode); }
-    catch(e){ err(e.message); }
+    const typed=document.getElementById('gn').value.trim();
+    if(!typed)return err('Enter your number.');
+    const cls=classifyNumber(gc.value, typed);
+    try{
+      if(cls.intl){ const r=await POST('/api/auth/request-otp',{intl:true,msisdn:cls.msisdn}); gateCode({intl:true,msisdn:cls.msisdn}, r.devCode); }
+      else { const r=await POST('/api/auth/request-otp',{country:cls.country,national:cls.national}); gateCode({country:cls.country,national:cls.national}, r.devCode); }
+    }catch(e){ err(e.message); }
   };
   document.getElementById('gadmin').onclick=e=>{e.preventDefault();adminLogin();};
 }
-function gateCode(country,national,devCode){
+function gateCode(ctx,devCode){
   view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0">
     <h3>Enter your code</h3>
-    <div class="small muted">Sent to your number.${devCode?` Demo code: <b>${devCode}</b>`:''}</div>
+    <div class="small muted">Sent to your number.${devCode?` Demo code: <b>${devCode}</b>`:''}${ctx.intl?' · <b>International account</b>':''}</div>
     <label>6-digit code</label><input id="gco" inputmode="numeric" maxlength="6" placeholder="••••••" value="${devCode||''}">
     <div id="err"></div>
     <button class="btn" id="gv">Verify &amp; sign in</button>
@@ -185,9 +199,12 @@ function gateCode(country,national,devCode){
   </div>`;
   document.getElementById('gback').onclick=renderGate;
   document.getElementById('gv').onclick=async()=>{
-    try{ const v=await POST('/api/auth/verify-otp',{country,national,code:document.getElementById('gco').value.trim()});
-      TOKEN=v.token; ME={country,national,msisdn:v.msisdn}; state.cc=country;
-      localStorage.setItem('momo_tok',TOKEN); localStorage.setItem('momo_me',JSON.stringify(ME));
+    const code=document.getElementById('gco').value.trim();
+    try{
+      let v;
+      if(ctx.intl){ v=await POST('/api/auth/verify-otp',{intl:true,msisdn:ctx.msisdn,code}); ME={intl:true,msisdn:v.msisdn}; }
+      else { v=await POST('/api/auth/verify-otp',{country:ctx.country,national:ctx.national,code}); ME={country:ctx.country,national:ctx.national,msisdn:v.msisdn}; state.cc=ctx.country; }
+      TOKEN=v.token; localStorage.setItem('momo_tok',TOKEN); localStorage.setItem('momo_me',JSON.stringify(ME));
       route();
       if(v.claimed&&v.claimed.length){ shell('Welcome — funds delivered',`<div class="msg ok">You had money waiting: ${v.claimed.map(c=>fmt(c.amount,c.currency)+' '+c.currency).join(', ')} delivered to your wallet.</div>`); }
     }catch(e){ err(e.message); }
@@ -341,7 +358,85 @@ async function act(btnId, fn){const b=document.getElementById(btnId);if(!b)retur
 function clearCustomer(){ TOKEN='';ME=null;localStorage.removeItem('momo_tok');localStorage.removeItem('momo_me'); }
 async function signOut(){ try{await POST('/api/auth/logout',{});}catch(e){} clearCustomer(); state.view='wallet'; route(); }
 function adminSignOut(){ ADMIN='';localStorage.removeItem('momo_admin'); route(); }
+// Changing country = a different account for that market → confirm sign-out first.
+function confirmSwitchCountry(chosen){
+  const m=state.markets.find(x=>x.code===chosen);
+  const revert=()=>{ const sel=document.getElementById('country'); if(sel) sel.value=state.cc; close(); };
+  root.innerHTML=`<div class="backdrop"><div class="modal"><h3>Sign out to switch country?</h3>
+    <div class="small muted" style="margin-top:6px">Your wallet is tied to your number in <b>${state.markets.find(x=>x.code===state.cc)?.name||state.cc}</b>. Switching to <b>${m?m.name:chosen}</b> is a different account, so you'll be signed out and returned to the sign-in screen for ${m?m.name:chosen}.</div>
+    <button class="btn" id="csYes">Sign out &amp; switch</button>
+    <button class="btn sec" id="csNo">Stay signed in</button></div></div>`;
+  root.querySelector('.backdrop').onclick=e=>{ if(e.target===root.querySelector('.backdrop')) revert(); };
+  document.getElementById('csNo').onclick=revert;
+  document.getElementById('csYes').onclick=async()=>{
+    try{ await POST('/api/auth/logout',{}); }catch(e){}
+    clearCustomer(); state.cc=chosen; state.view='wallet'; close(); route();
+  };
+}
 
+// ---- International (USDT-only) home ----
+function renderIntlHome(){
+  document.getElementById('foot').innerHTML='International account (USDT). Fund USDT, send to any MoMo market, and run gig-worker payroll into Africa — your USDT auto-converts to the workers’ local currency at payout.';
+  view.innerHTML=`
+    <div class="cards" style="grid-template-columns:1fr">
+      <div class="bal usdt"><div class="lab">USDT wallet</div><div class="amt">${fmtU(state.usdt||0)} <small style="color:#bfe4dc">USDT</small></div>
+        <div class="small" style="margin-top:6px;color:#bfe4dc">International account · +${ME.msisdn}</div></div>
+    </div>
+    <div class="actions" style="grid-template-columns:repeat(3,1fr)">
+      <button data-iact="topup"><span class="ic">🪙</span>Add USDT</button>
+      <button data-iact="remit"><span class="ic">🌍</span>Send to an Opco</button>
+      <button data-iact="payroll"><span class="ic">👷</span>Gig Workers Payroll</button>
+    </div>
+    <div class="panel"><h3>Recent activity</h3>${
+      (state.activity&&state.activity.length)? state.activity.slice(0,8).map(a=>`<div class="row"><span>${a.text}</span><span class="small muted">${new Date(a.t).toLocaleTimeString()}</span></div>`).join('')
+      :'<div class="muted small">Nothing yet — add USDT, then send or run payroll.</div>'}</div>`;
+  view.querySelectorAll('[data-iact]').forEach(b=>b.onclick=()=>openIntlModal(b.dataset.iact));
+}
+function openIntlModal(a){
+  const opcos=state.markets.filter(m=>m.enabled);
+  if(a==='topup'){shell('Add USDT',`<label>Amount (USDT)</label><input id="amt" inputmode="decimal" placeholder="500"><div class="small muted" style="margin-top:8px">Funds your USDT balance (demo top-up; a real rail funds via card / bank / on-chain).</div><div id="err"></div><button class="btn" id="go">Add USDT</button>`);
+    act('go',async()=>{const v=+document.getElementById('amt').value;if(!(v>0))throw new Error('Enter an amount.');
+      await POST('/api/usdt/topup',{amount:v}); okmsg(`Added ${fmtU(v)} USDT.`);setTimeout(close,900);});}
+  if(a==='remit'){
+    const opts=opcos.map(m=>`<option value="${m.code}">${m.name} · ${m.ccy}</option>`).join('');
+    shell('Send to an Opco',`<label>Destination country</label><select id="dc" class="inp">${opts}</select>
+      <label>Recipient MoMo number</label><input id="dn" placeholder="phone">
+      <label>Amount (USDT)</label><input id="amt" inputmode="decimal" placeholder="50">
+      <div class="quote" id="q"><div class="muted small">They receive local currency at the destination rate.</div></div>
+      <div class="small muted" style="margin-top:8px">Reserved from your USDT now; delivered when the recipient signs in.</div>
+      <div id="err"></div><button class="btn" id="go">Reserve &amp; send</button>`);
+    const dc=document.getElementById('dc'),amt=document.getElementById('amt');
+    const quote=()=>{const v=+amt.value,m=state.markets.find(x=>x.code===dc.value),q=document.getElementById('q');
+      if(!(v>0)||!m){q.innerHTML='<div class="muted small">They receive local currency at the destination rate.</div>';return;}
+      const g=v*+m.rate,fe=g*0.02,net=g-fe;
+      q.innerHTML=`<div class="qr"><span>You send</span><span>${fmtU(v)} USDT</span></div><div class="qr"><span>Rate</span><span>1 USDT = ${fmt(m.rate,m.ccy)} ${m.ccy}</span></div><div class="qr"><span>Fee (2%)</span><span>${fmt(fe,m.ccy)} ${m.ccy}</span></div><div class="qr tot"><span>They receive</span><span>${fmt(net,m.ccy)} ${m.ccy}</span></div>`;};
+    dc.onchange=quote;amt.oninput=quote;
+    act('go',async()=>{const v=+amt.value;if(!(v>0))throw new Error('Enter an amount.');
+      const r=await POST('/api/remit/send',{destCountry:dc.value,destNational:document.getElementById('dn').value,amountUsdt:v});
+      okmsg(`Reserved ${fmtU(v)} USDT for +${r.claim.destMsisdn}. They receive ${fmt(r.estimate.net,r.estimate.currency)} ${r.estimate.currency} on sign-in. Code ${r.claim.code}`);setTimeout(close,2200);});}
+  if(a==='payroll'){
+    const opts=opcos.map(m=>`<option value="${m.code}">${m.name} · ${m.ccy}</option>`).join('');
+    shell('Gig Workers Payroll',`<label>Workers’ country</label><select id="pc" class="inp">${opts}</select>
+      <div class="small muted" style="margin-top:6px">Your USDT auto-converts to their local currency, then pays each worker.</div>
+      <div id="rows" style="margin-top:10px"></div><button class="btn sec" id="add" style="margin-top:0">+ Add worker</button>
+      <div class="quote" id="q" style="margin-top:8px"></div><div id="err"></div><button class="btn" id="go">Convert &amp; pay</button>`);
+    const rows=document.getElementById('rows'),pc=document.getElementById('pc');
+    const quote=()=>{const m=state.markets.find(x=>x.code===pc.value);const total=[...rows.querySelectorAll('.payrow')].reduce((s,r)=>s+(+r.querySelectorAll('input')[1].value||0),0);const q=document.getElementById('q');
+      if(!total||!m){q.innerHTML='<div class="muted small">Add workers to see the USDT cost.</div>';return;}
+      const usdt=total/(+m.rate)/(1-0.015);
+      q.innerHTML=`<div class="qr"><span>Total to workers</span><span>${fmt(total,m.ccy)} ${m.ccy}</span></div><div class="qr tot"><span>USDT needed (incl. 1.5% convert)</span><span>~${fmtU(usdt)} USDT</span></div>`;};
+    const addRow=(ph,am)=>{const d=document.createElement('div');d.className='payrow';d.innerHTML=`<input placeholder="+dial phone" value="${ph||''}"><input inputmode="decimal" placeholder="amount (local)" value="${am||''}"><button>✕</button>`;d.querySelector('button').onclick=()=>{d.remove();quote();};rows.appendChild(d);};
+    addRow('','');addRow('','');document.getElementById('add').onclick=()=>addRow();
+    pc.onchange=quote;rows.addEventListener('input',quote);quote();
+    act('go',async()=>{const m=state.markets.find(x=>x.code===pc.value);
+      const payees=[...rows.querySelectorAll('.payrow')].map(r=>{const i=r.querySelectorAll('input');return{ph:i[0].value.trim(),amt:+i[1].value};}).filter(x=>x.amt>0);
+      if(!payees.length)throw new Error('Add at least one worker with an amount.');
+      const total=payees.reduce((s,x)=>s+x.amt,0);
+      const usdtNeeded=(total/(+m.rate)/(1-0.015))*1.03;
+      await POST('/api/convert',{country:pc.value,direction:'usdt_to_local',amount:usdtNeeded.toFixed(6)});
+      const r=await POST('/api/payroll',{country:pc.value,payees});
+      okmsg(`Converted from USDT and paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed`:''}.`);setTimeout(close,1600);});}
+}
 function openModal(a){
   const w=state.wallet;
   if(a==='cashin'){shell(`Cash in — ${w.name} MoMo`,`<label>Amount (${w.localCurrency})</label><input id="amt" inputmode="decimal" placeholder="${w.localCurrency==='UGX'?'100000':'2000'}"><div class="small muted" style="margin-top:8px">Simulates a MoMo collection (request-to-pay) from ${w.operator}.</div><div id="err"></div><button class="btn" id="go">Approve MoMo prompt</button>`);
@@ -396,7 +491,11 @@ function openModal(a){
       const r=await POST('/api/payroll',{customer:CID,country:state.cc,payees});
       okmsg(`Paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed (insufficient balance)`:''}.`);setTimeout(close,1200);});}
 }
-document.getElementById('country').onchange=e=>{state.cc=e.target.value;refresh();};
+document.getElementById('country').onchange=e=>{
+  const chosen=e.target.value;
+  if(TOKEN&&ME&&chosen!==state.cc){ confirmSwitchCountry(chosen); }
+  else { state.cc=chosen; refresh(); }
+};
 (async()=>{try{await loadMarkets();if(ME&&ME.country)state.cc=ME.country;route();}catch(e){view.innerHTML=`<div class="panel msg err">${e.message}</div>`;}})();
 </script>
 </body>
