@@ -13,6 +13,7 @@
   .top{background:var(--brand2);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .brand{font-weight:800;font-size:1.05rem}.brand .swap{color:var(--gold)}
   .tag{font-size:.62rem;background:#11534b;color:#bfe4dc;padding:2px 8px;border-radius:20px;margin-left:6px}
+  .tag.warn{background:#7A5A12;color:#FFE6A8}
   .top .spacer{flex:1}
   .lnk{background:transparent;border:1px solid #1c5f56;color:#cfe7e1;border-radius:8px;padding:6px 11px;cursor:pointer;font-weight:600;font-size:.85rem}
   .lnk:hover{background:#0e463f}
@@ -101,7 +102,7 @@
 </head>
 <body>
 <div class="top">
-  <div class="brand">One-In-All Rail <span class="swap">⇄</span> <span class="tag" id="modeTag">live API</span></div>
+  <div class="brand">One-In-All Rail <span class="swap">⇄</span> <span class="tag" id="modeTag" title="The app-to-server API is live — real ledger and balances. The MTN MoMo operator rail is mocked/sandbox, so no real funds move.">live API</span><span class="tag warn" title="MTN MoMo integration is sandboxed/mock in this deployment — no real money moves.">sandbox rails</span></div>
   <div class="spacer"></div>
   <div id="authbox"></div>
   <div class="csel" id="csel" style="display:none"><span class="fi" id="topFlag"></span><select id="country"></select></div>
