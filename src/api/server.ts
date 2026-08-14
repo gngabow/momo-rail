@@ -73,7 +73,7 @@ async function seed(cid: string) {
   const m = cid.match(/^cust:([A-Z]{2}):/);
   const known = registry.list().some((p) => p.code === (m ? m[1] : ''));
   const p = registry.require(known ? m![1] : 'UG'); // the customer's own market (default UG)
-  await provisionWallet(ledger, cid, p.localCurrency, code); // local wallet, 0 balance
+  await provisionWallet(ledger, cid, p.localCurrency, p.code); // local wallet, 0 balance
 }
 
 async function balances(cid: string, code: string) {

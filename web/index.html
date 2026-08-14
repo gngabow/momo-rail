@@ -45,6 +45,11 @@
   .pill{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--ice);color:var(--brand)}
   .pill.cfg{background:#FFF6E5;color:#8A5A00}.pill.off{background:#FBE9E9;color:#B23A3A}
   .pill.res{background:#FFF6E5;color:#8A5A00}.pill.cl{background:#E7F4EC;color:#0F7B52}
+  .mchips{display:flex;flex-wrap:wrap;gap:6px}
+  .mchip{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-weight:700;color:var(--brand);background:var(--ice);border:1px solid transparent;padding:3px 9px;border-radius:20px}
+  .mchip .fi{width:20px;height:14px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1)}
+  .mchip.off{color:#B23A3A;background:#FBE9E9;opacity:.85}
+  .row .fi{width:18px;height:13px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1);vertical-align:middle}
   .backdrop{position:fixed;inset:0;background:rgba(10,20,25,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
   .modal{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.25);max-height:92vh;overflow:auto}
   .modal h3{font-size:1.15rem}
@@ -347,10 +352,14 @@ async function renderAdmin(){
   let ov,tr,inf,act;
   try{ [ov,tr,inf,act]=await Promise.all([
     api('/api/admin/overview',H),api('/api/admin/treasury',H),api('/api/admin/inflight',H),api('/api/admin/activity',H)]);
+    await loadMarkets();
   }catch(e){ ADMIN='';localStorage.removeItem('momo_admin');return route(); }
 
+  const flagStrip=state.markets.map(m=>`<span class="mchip ${m.enabled?'':'off'}" title="${m.name} · ${m.ccy}${m.enabled?'':' · disabled'}"><span class="fi fi-${m.code.toLowerCase()}"></span>${m.code}</span>`).join('');
   const overview=`<div class="panel"><h3>Overview</h3><div style="display:flex;gap:10px;flex-wrap:wrap">
-    ${tile('Storage',ov.store)}${tile('Markets enabled',ov.enabled+' / '+ov.markets)}${tile('Live on MTN',ov.liveOnMtn)}${tile('Currencies',ov.currencies)}${tile('Wallets',ov.walletsSeeded)}</div></div>`;
+    ${tile('Storage',ov.store)}${tile('Markets enabled',ov.enabled+' / '+ov.markets)}${tile('Live on MTN',ov.liveOnMtn)}${tile('Currencies',ov.currencies)}${tile('Wallets',ov.walletsSeeded)}</div>
+    <div class="small muted" style="text-transform:uppercase;letter-spacing:.4px;font-size:.64rem;margin:12px 0 6px">Opco markets</div>
+    <div class="mchips">${flagStrip}</div></div>`;
   const treasury=`<div class="panel"><h3>Treasury — system balances</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       ${tile('USDT hot wallet',fmtU(tr.usdt.hotWallet)+' USDT')}${tile('USDT fee revenue',fmtU(tr.usdt.feeRevenue)+' USDT')}${tile('Remittance escrow',fmtU(tr.usdt.remitEscrow)+' USDT')}</div>
@@ -360,7 +369,7 @@ async function renderAdmin(){
     <div class="small muted" style="margin-top:6px">Float and hot-wallet balances are negative by convention — they're the pool that funds customer wallets (a liability owed out).</div></div>`;
   const inflight=`<div class="panel"><h3>In-flight</h3>
     <div class="small muted" style="margin-bottom:4px">Pending MoMo settlements: ${inf.pending.length} · Reserved remittances: ${inf.claims.length}</div>
-    ${inf.pending.map(x=>`<div class="row"><span>${x.kind} · ${fmt(x.amountLocal,x.currency)} ${x.currency} <span class="pill res">${x.status}</span></span><span class="small muted">${x.countryCode}</span></div>`).join('')}
+    ${inf.pending.map(x=>`<div class="row"><span>${x.kind} · ${fmt(x.amountLocal,x.currency)} ${x.currency} <span class="pill res">${x.status}</span></span><span class="small muted"><span class="fi fi-${String(x.countryCode||'').toLowerCase()}"></span> ${x.countryCode}</span></div>`).join('')}
     ${inf.claims.map(c=>`<div class="row"><span>remit → +${c.destMsisdn} · ${fmtU(c.amountUsdt)} USDT <span class="pill res">reserved</span></span><span class="small muted">code ${c.code}</span></div>`).join('')}
     ${(!inf.pending.length&&!inf.claims.length)?'<div class="muted small">Nothing in flight.</div>':''}</div>`;
   const activity=`<div class="panel"><h3>System activity</h3>
