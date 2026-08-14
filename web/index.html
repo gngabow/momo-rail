@@ -72,6 +72,12 @@
   .fieldbox select,.fieldbox input{flex:1;border:none;outline:none;background:transparent;padding:12px 0;font-size:1rem;color:var(--ink)}
   .fieldbox .prefix{color:var(--muted);font-weight:700;flex:none}
   .fieldbox .chev{color:var(--muted);flex:none;pointer-events:none;margin-left:-6px}
+  .tl{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.14);max-height:244px;overflow:auto;z-index:8}
+  .tlrow{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:.92rem;border-top:1px solid #f2f1ec}
+  .tlrow:first-child{border-top:none}.tlrow:hover{background:var(--ice)}
+  .tlrow .fi{width:24px;height:17px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.1);flex:none}
+  .tlrow .d{color:var(--muted);margin-left:auto;font-size:.85rem;white-space:nowrap}
+  .tlrow .usdtt{font-size:.58rem;font-weight:700;background:#DDEBEA;color:#1F7E77;padding:1px 6px;border-radius:20px;margin-left:6px}
   @media(max-width:640px){.actions{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:1fr}}
 </style>
 </head>
@@ -105,6 +111,16 @@ let ME=JSON.parse(localStorage.getItem('momo_me')||'null');
 // for a real deployment.
 const DEMO_ADMIN={u:'admin',p:'MomoRail2026!'};
 const state={cc:'UG',view:'wallet',markets:[],wallet:null,activity:[],admin:[]};
+// Curated international remitter/employer countries (non-Opco → USDT accounts).
+const INTL_COUNTRIES=[
+  {code:'GB',name:'United Kingdom',dial:'44'},{code:'US',name:'United States',dial:'1'},
+  {code:'CA',name:'Canada',dial:'1'},{code:'AE',name:'United Arab Emirates',dial:'971'},
+  {code:'SA',name:'Saudi Arabia',dial:'966'},{code:'QA',name:'Qatar',dial:'974'},
+  {code:'DE',name:'Germany',dial:'49'},{code:'FR',name:'France',dial:'33'},
+  {code:'NL',name:'Netherlands',dial:'31'},{code:'IT',name:'Italy',dial:'39'},
+  {code:'SE',name:'Sweden',dial:'46'},{code:'AU',name:'Australia',dial:'61'},
+  {code:'IN',name:'India',dial:'91'},{code:'CN',name:'China',dial:'86'},
+].map(c=>({...c,type:'intl'}));
 async function api(path,opts){opts=opts||{};const headers=Object.assign({},opts.headers);
   if(TOKEN&&!headers.Authorization)headers.Authorization='Bearer '+TOKEN;
   const r=await fetch(path,Object.assign({},opts,{headers}));const j=await r.json().catch(()=>({}));
@@ -135,17 +151,6 @@ function route(){
 async function enterApp(){ try{ await loadWallet(); await loadActivity(); renderWallet(); }catch(e){ clearCustomer(); route(); } }
 async function enterIntl(){ try{ const w=await api(`/api/usdt-balance?customer=${CID}`); state.usdt=w.usdt; state.activity=await api(`/api/activity?customer=${CID}`); renderIntlHome(); }catch(e){ clearCustomer(); route(); } }
 async function refresh(){ if(ADMIN){renderAdmin();return;} if(TOKEN&&ME){ if(ME.intl){await enterIntl();} else {await loadWallet();await loadActivity();renderWallet();} } else {route();} }
-// A non-Opco number (international format, code not one of our markets) → USDT-only account.
-function classifyNumber(selectedOpco, typed){
-  const digits=(typed||'').replace(/\D/g,'').replace(/^0+/,'');
-  if(selectedOpco==='INTL') return {intl:true,msisdn:digits};
-  if(/^\s*(\+|00)/.test(typed)){
-    const match=state.markets.map(m=>m.dial).filter(d=>digits.startsWith(d)).sort((a,b)=>b.length-a.length)[0];
-    if(match){ const m=state.markets.find(x=>x.dial===match); return {intl:false,country:m.code,national:digits.slice(match.length)}; }
-    return {intl:true,msisdn:digits};
-  }
-  return {intl:false,country:selectedOpco,national:digits};
-}
 function renderAuth(){
   const el=document.getElementById('authbox');
   if(ADMIN){el.innerHTML=`<span class="small" style="color:#bfe4dc">🛠 Admin</span> <button class="lnk" id="so">Sign out</button>`;el.querySelector('#so').onclick=adminSignOut;return;}
@@ -156,46 +161,52 @@ function renderAuth(){
 function renderGate(){
   const enabled=state.markets.filter(m=>m.enabled);
   if(!enabled.length){ view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0"><h3>No markets are live</h3><div class="small muted">An operator needs to enable a market from the ops console before customers can sign in.</div><div id="gadmin" style="margin-top:18px;background:var(--brand2);color:#fff;border-radius:10px;padding:13px 14px;text-align:center;font-weight:800;cursor:pointer">Ops team? Admin sign-in →</div></div>`; document.getElementById('gadmin').onclick=e=>{e.preventDefault();adminLogin();}; return; }
-  if(!enabled.find(m=>m.code===state.cc)) state.cc=enabled[0].code;
-  const opts=enabled.map(m=>`<option value="${m.code}"${m.code===state.cc?' selected':''}>${m.name} · +${m.dial}</option>`).join('')
-    +`<option value="INTL">🌍 International (other country)</option>`;
+  // Directory: enabled Opcos (local wallet) + curated remitter countries (USDT).
+  const DIR=[
+    ...enabled.map(m=>({code:m.code,name:m.name,dial:m.dial,type:'opco'})),
+    ...INTL_COUNTRIES,
+  ];
   view.innerHTML=`<div class="panel" style="max-width:440px;margin:5vh auto 0">
     <h3>Sign in to your wallet</h3>
-    <div class="small muted">Pick your country and enter your MoMo number — we'll send a one-time code. Sending from outside these markets (an employer or remitter)? Choose <b>🌍 International</b> and enter your full number with country code.</div>
+    <div class="small muted">Start typing your country, pick it, then enter your number. In an MTN market you get a local wallet; elsewhere (employers &amp; remitters) a USDT account.</div>
     <label>Country</label>
-    <div class="fieldbox"><span class="fi" id="gcflag"></span><select id="gc">${opts}</select><span class="chev">▾</span></div>
-    <label id="gnlabel">MoMo number</label>
-    <div class="fieldbox"><span class="fi" id="gnflag"></span><span class="prefix" id="gdial">+</span><input id="gn" inputmode="numeric" placeholder="712 345 678"></div>
+    <div style="position:relative">
+      <div class="fieldbox"><span class="fi" id="gcflag"></span><input id="gcsearch" autocomplete="off" placeholder="Type your country…"><span class="chev">▾</span></div>
+      <div id="gclist" class="tl" style="display:none"></div>
+    </div>
+    <label id="gnlabel">Mobile number</label>
+    <div class="fieldbox"><span class="fi" id="gnflag"></span><span class="prefix" id="gdial">+</span><input id="gn" inputmode="numeric" placeholder="phone number"></div>
     <div id="err"></div>
     <button class="btn" id="ggo">Send code</button>
     <div id="gadmin" style="margin-top:18px;background:var(--brand2);color:#fff;border-radius:10px;padding:13px 14px;text-align:center;font-weight:800;cursor:pointer;letter-spacing:.2px">Ops team? Admin sign-in →</div>
   </div>`;
-  const gc=document.getElementById('gc');
-  const syncFlag=()=>{
+  let selected=null;
+  const search=document.getElementById('gcsearch'), list=document.getElementById('gclist');
+  const pick=(c)=>{ selected=c; search.value=c.name; list.style.display='none';
+    const cl='fi fi-'+c.code.toLowerCase();
     const gcf=document.getElementById('gcflag'),gnf=document.getElementById('gnflag');
-    if(gc.value==='INTL'){
-      gcf.className=''; gcf.textContent='🌍'; gnf.className=''; gnf.textContent='🌍';
-      document.getElementById('gdial').textContent='+';
-      document.getElementById('gn').placeholder='44 7911 123456';
-      document.getElementById('gnlabel').textContent='Your phone number (with country code)';
-      return;
-    }
-    const code=gc.value.toLowerCase(); const m=enabled.find(x=>x.code===gc.value);
-    gcf.textContent=''; gnf.textContent='';
-    gcf.className='fi fi-'+code; gnf.className='fi fi-'+code;
-    document.getElementById('gdial').textContent='+'+(m?m.dial:'');
-    document.getElementById('gn').placeholder='712 345 678';
-    document.getElementById('gnlabel').textContent='MoMo number';
+    gcf.textContent='';gnf.textContent=''; gcf.className=cl; gnf.className=cl;
+    document.getElementById('gdial').textContent='+'+c.dial;
+    document.getElementById('gnlabel').textContent = c.type==='opco' ? 'Mobile number' : 'Your mobile number (USDT account)';
+    document.getElementById('gn').focus();
   };
-  gc.value=state.cc; syncFlag();
-  gc.onchange=()=>{ if(gc.value!=='INTL') state.cc=gc.value; syncFlag(); };
+  const draw=(q)=>{ const ql=q.trim().toLowerCase();
+    const matches=DIR.filter(c=>c.name.toLowerCase().includes(ql)||('+'+c.dial).includes(ql)).slice(0,8);
+    if(!matches.length){ list.style.display='none'; return; }
+    list.innerHTML=matches.map((c,i)=>`<div class="tlrow" data-i="${i}"><span class="fi fi-${c.code.toLowerCase()}"></span><span>${c.name}</span>${c.type==='intl'?'<span class="usdtt">USDT</span>':''}<span class="d">+${c.dial}</span></div>`).join('');
+    list.querySelectorAll('.tlrow').forEach((r,i)=>{ r.onmousedown=(e)=>{e.preventDefault();pick(matches[i]);}; });
+    list.style.display='block';
+  };
+  search.oninput=()=>{ selected=null; document.getElementById('gcflag').className='fi'; document.getElementById('gcflag').textContent=''; draw(search.value); };
+  search.onfocus=()=>{ draw(search.value); };
+  search.onblur=()=>{ setTimeout(()=>{ list.style.display='none'; },150); };
   document.getElementById('ggo').onclick=async()=>{
-    const typed=document.getElementById('gn').value.trim();
-    if(!typed)return err('Enter your number.');
-    const cls=classifyNumber(gc.value, typed);
+    if(!selected) return err('Start typing and pick your country.');
+    const national=document.getElementById('gn').value.replace(/\D/g,'').replace(/^0+/,'');
+    if(!national) return err('Enter your number.');
     try{
-      if(cls.intl){ const r=await POST('/api/auth/request-otp',{intl:true,msisdn:cls.msisdn}); gateCode({intl:true,msisdn:cls.msisdn}, r.devCode); }
-      else { const r=await POST('/api/auth/request-otp',{country:cls.country,national:cls.national}); gateCode({country:cls.country,national:cls.national}, r.devCode); }
+      if(selected.type==='opco'){ const r=await POST('/api/auth/request-otp',{country:selected.code,national}); gateCode({country:selected.code,national}, r.devCode); }
+      else { const msisdn=selected.dial+national; const r=await POST('/api/auth/request-otp',{intl:true,msisdn}); gateCode({intl:true,msisdn}, r.devCode); }
     }catch(e){ err(e.message); }
   };
   document.getElementById('gadmin').onclick=e=>{e.preventDefault();adminLogin();};
