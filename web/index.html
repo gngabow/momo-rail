@@ -22,8 +22,17 @@
   .csel select option{color:#111}
   .wrap{max-width:960px;margin:18px auto;padding:0 16px}
   .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-  .tabs button{border:1px solid var(--line);background:#fff;padding:8px 16px;border-radius:20px;font-weight:600;color:var(--muted);cursor:pointer}
-  .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .tabs button{border:1px solid transparent;padding:8px 16px;border-radius:20px;font-weight:700;cursor:pointer;transition:filter .12s}
+  .tabs button:hover{filter:brightness(.96)}
+  .tabs button[data-atab="console"]{background:#E7F1EF;color:#0F5B52}
+  .tabs button[data-atab="markets"]{background:#DCEFE8;color:#0B6B4F}
+  .tabs button[data-atab="config"]{background:#FFF3D9;color:#8A5A00}
+  .tabs button[data-atab="customers"]{background:#E4EEFB;color:#1B4F8A}
+  .tabs button[data-atab="compliance"]{background:#F0E9FB;color:#5B3A9A}
+  .tabs button[data-atab="recon"]{background:#E2F3F4;color:#0B6A6E}
+  .tabs button[data-atab="support"]{background:#FBE9F0;color:#9A3A63}
+  .tabs button[data-atab="billers"]{background:#FCEBDD;color:#9A5A2A}
+  .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:800}
   .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
   .bal{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
   .bal .lab{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
