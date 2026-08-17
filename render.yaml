@@ -4,7 +4,7 @@ databases:
   - name: momo-postgres
     databaseName: momo_rail
     user: momo
-    plan: free   # bump for real traffic
+    plan: basic-256mb   # cheapest paid Render Postgres (~$6/mo); free slot is taken by mup-postgres
 
 services:
   - type: web
