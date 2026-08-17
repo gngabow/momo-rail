@@ -10,7 +10,7 @@ services:
   - type: web
     name: momo-rail
     runtime: node
-    plan: free
+    plan: starter   # Free tier failed to build/boot; Starter keeps momo always-on (~$7/mo)
     buildCommand: npm install && npm run build
     startCommand: node dist/src/api/server.js
     envVars:
