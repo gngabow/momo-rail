@@ -2,7 +2,7 @@
   "name": "momo-rail",
   "version": "0.1.0",
   "private": true,
-  "description": "One-In-All Rail — country-configurable MTN MoMo <-> USDT rail for Africa (standalone greenfield build)",
+  "description": "One-In-All Rail \u2014 country-configurable MTN MoMo <-> USDT rail for Africa (standalone greenfield build)",
   "license": "UNLICENSED",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -22,7 +22,9 @@
     "demo": "ts-node -T src/demo.ts",
     "momo:provision": "ts-node -T scripts/provision-momo-sandbox.ts",
     "db:migrate": "ts-node -T scripts/db-migrate.ts",
-    "db:selftest": "ts-node -T scripts/db-selftest.ts"
+    "db:selftest": "ts-node -T scripts/db-selftest.ts",
+    "seed:admin-user": "ts-node -T scripts/seed-admin-user.ts",
+    "set-admin-password": "ts-node -T scripts/set-admin-password.ts"
   },
   "dependencies": {
     "pg": "^8.12.0"

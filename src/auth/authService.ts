@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import * as adminStore from './adminStore';
 import { CountryRegistry } from '../config/countryProfile';
 import { toMsisdn } from '../context/phone';
 
@@ -111,14 +112,18 @@ export class AuthService {
     return { token, customerId, msisdn, intl: true };
   }
 
-  /** Admin sign-in against env credentials. */
-  adminLogin(username: string, password: string): { token: string } {
+  /** Admin sign-in. DB-backed (admin_users) when DATABASE_URL is set;
+   *  falls back to ADMIN_USERNAME / ADMIN_PASSWORD env for the in-memory demo. */
+  async adminLogin(username: string, password: string): Promise<{ token: string }> {
+    if (adminStore.enabled()) {
+      const admin = await adminStore.verifyAdmin(username, password);
+      if (!admin) throw new AuthError('Invalid admin credentials');
+      return { token: this.issue(admin.username, 'admin') };
+    }
     const U = process.env.ADMIN_USERNAME || 'admin';
     const P = process.env.ADMIN_PASSWORD;
     if (!P) throw new AuthError('Admin is not configured (set ADMIN_PASSWORD)');
-    const okU = timingSafeEqualStr(username, U);
-    const okP = timingSafeEqualStr(password, P);
-    if (!okU || !okP) throw new AuthError('Invalid admin credentials');
+    if (!timingSafeEqualStr(username, U) || !timingSafeEqualStr(password, P)) throw new AuthError('Invalid admin credentials');
     return { token: this.issue(username, 'admin') };
   }
 

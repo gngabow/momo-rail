@@ -223,7 +223,7 @@ const server = http.createServer(async (req, res) => {
     // ---- Admin sign-in (unauthenticated) ----
     if (p === '/api/admin/login' && req.method === 'POST') {
       const b = await readBody(req);
-      return send(res, 200, auth.adminLogin(String(b.username || ''), String(b.password || '')));
+      return send(res, 200, await auth.adminLogin(String(b.username || ''), String(b.password || '')));
     }
     // ---- Admin + ops console (admin session required) ----
     if (p.startsWith('/api/admin/')) {

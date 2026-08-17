@@ -49,7 +49,7 @@ async function main() {
     process.env.ADMIN_USERNAME = 'ops';
     process.env.ADMIN_PASSWORD = 's3cret';
     await throws('bad admin password rejected', () => auth.adminLogin('ops', 'nope'));
-    const a = auth.adminLogin('ops', 's3cret');
+    const a = await auth.adminLogin('ops', 's3cret');
     ok('admin login -> admin session', !!a.token && auth.resolve(a.token)!.kind === 'admin');
     delete process.env.ADMIN_USERNAME; delete process.env.ADMIN_PASSWORD;
   }

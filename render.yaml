@@ -1,5 +1,11 @@
-# Render Blueprint — deploys the One-In-All Rail portal + API as a Node web service.
-# In-memory demo (mock MoMo adapter): no database, no secrets, no external services.
+# Render Blueprint — deploys the One-In-All (momo) Rail portal + API as a Node web service.
+# Postgres-backed: persistent ledger + DB-managed admin users (admin_users table).
+databases:
+  - name: momo-postgres
+    databaseName: momo_rail
+    user: momo
+    plan: free   # bump for real traffic
+
 services:
   - type: web
     name: momo-rail
@@ -10,3 +16,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      # Postgres durability — enables persistent ledger + DB-backed admin auth.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: momo-postgres
+          property: connectionString
+      # Stable session-signing secret so admin/customer sessions survive restarts.
+      - { key: AUTH_SECRET, generateValue: true }
