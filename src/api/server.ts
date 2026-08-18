@@ -22,7 +22,9 @@ import { ClaimStore } from '../remittance/claimStore';
 import { PgClaimSink } from '../remittance/pgClaimSink';
 import { RemittanceService } from '../remittance/remittanceService';
 import { BillerService } from '../billers/billerService';
+import { PgBillerSink } from '../billers/pgBillerSink';
 import { RequestService } from '../requests/requestService';
+import { PgRequestSink } from '../requests/pgRequestSink';
 import { toMsisdn } from '../context/phone';
 import crypto from 'crypto';
 
@@ -135,6 +137,13 @@ function customerId(req: http.IncomingMessage, fallback: string): string {
   return s && s.kind === 'customer' ? s.subject : fallback;
 }
 
+/** STRICT identity: the signed-in customer's id, or null when there is no valid customer session.
+ *  No client-supplied fallback — used to gate every money move and every customer-scoped read. */
+function sessionCustomer(req: http.IncomingMessage): string | null {
+  const sn = auth.resolve(bearer(req));
+  return sn && sn.kind === 'customer' ? sn.subject : null;
+}
+
 function readBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
     let d = '';
@@ -173,15 +182,18 @@ const server = http.createServer(async (req, res) => {
       })));
     }
     if (p === '/api/wallet') {
-      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in to view your wallet.' });
       return send(res, 200, await balances(cid, String(q.get('country') || 'UG')));
     }
     if (p === '/api/activity') {
-      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in to view your wallet.' });
       return send(res, 200, activity.get(cid) || []);
     }
     if (p === '/api/pending') {
-      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in to view your wallet.' });
       return send(res, 200, rail.pendingStore().list().filter((x) => x.customerId === cid));
     }
 
@@ -206,7 +218,8 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ...v, claimed: delivered.map((d) => d.delivered) });
     }
     if (p === '/api/usdt-balance') {
-      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in to view your wallet.' });
       await seed(cid);
       const uw = await ledger.findCustomerWallet(cid, 'USDT');
       return send(res, 200, { usdt: uw ? (await ledger.getBalance(uw.id)).balance : '0.000000', intl: isIntlCustomer(cid) });
@@ -403,12 +416,20 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { biller });
       }
 
+      // Remittance ops — refund a still-reserved claim back to the sender (stranded/expired escrow).
+      if (p === '/api/admin/remit/refund' && req.method === 'POST') {
+        const b = await readBody(req);
+        const c = await remit.refund(String(b.code || b.idOrCode || ''));
+        return send(res, 200, { refunded: { id: c.id, code: c.code, status: c.status, amountUsdt: c.amountUsdt } });
+      }
+
       return send(res, 404, { error: 'unknown admin route' });
     }
 
     // ---- Remittance (invite / claim) — reads ----
     if (p === '/api/remit/outbox') {
-      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in to view your wallet.' });
       return send(res, 200, remit.outboxFor(cid));
     }
     if (p === '/api/remit/inbox') {
@@ -421,7 +442,8 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, billers.list(q.get('country') ? String(q.get('country')) : undefined));
     }
     if (p === '/api/request/outbox') {
-      const cid = customerId(req, String(q.get('customer') || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in to view your wallet.' });
       return send(res, 200, requests.listFor(cid));
     }
     if (p === '/api/request/lookup') {
@@ -447,7 +469,7 @@ const server = http.createServer(async (req, res) => {
       const item = rail.pendingStore().get(ref);
       const settled = await rail.settle(ref, status, String(body.financialTransactionId ?? ''), body.reason ? String(body.reason) : undefined);
       if (item) {
-        const verb = item.kind === 'deposit' ? 'Cash in' : 'Cash out';
+        const verb = item.kind === 'deposit' ? 'Cash in' : item.kind === 'payroll' ? 'Payroll' : 'Cash out';
         logAct(item.customerId, `${verb} ${status === 'success' ? 'confirmed' : 'failed'} — ${item.amountLocal} ${item.currency}`,
           status === 'success' ? (item.kind === 'deposit' ? 'pos' : 'neg') : 'neg');
       }
@@ -465,7 +487,7 @@ const server = http.createServer(async (req, res) => {
       const pr = await provider.status(ref, product);
       if (pr.status !== 'pending') {
         await rail.settle(ref, pr.status as 'success' | 'failed', pr.providerRef);
-        logAct(item.customerId, `${item.kind === 'deposit' ? 'Cash in' : 'Cash out'} ${pr.status === 'success' ? 'confirmed' : 'failed'} — ${item.amountLocal} ${item.currency}`,
+        logAct(item.customerId, `${item.kind === 'deposit' ? 'Cash in' : item.kind === 'payroll' ? 'Payroll' : 'Cash out'} ${pr.status === 'success' ? 'confirmed' : 'failed'} — ${item.amountLocal} ${item.currency}`,
           pr.status === 'success' ? (item.kind === 'deposit' ? 'pos' : 'neg') : 'neg');
       }
       return send(res, 200, { reference: ref, status: pr.status, wallet: await balances(item.customerId, item.countryCode) });
@@ -473,7 +495,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST') {
       const b = await readBody(req);
-      const cid = customerId(req, String(b.customer || 'demo'));
+      const cid = sessionCustomer(req);
+      if (!cid) return send(res, 401, { error: 'auth_required', message: 'Sign in before moving money.' });
       const country = String(b.country || 'UG');
       await seed(cid);
       const prof = registry.require(country);
@@ -503,13 +526,13 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { result: r, wallet: await balances(cid, country) });
       }
       if (p === '/api/payroll') {
-        const payees = (b.payees || []).map((x: any) => ({ national: String(x.ph || '700000001'), amountLocal: String(x.amt) }));
+        const payees = (b.payees || []).map((x: any) => ({ national: String(x.ph || '').trim(), amountLocal: String(x.amt) }));
         const r = await payroll.runBatch(country, { employerCustomerId: cid, payees });
-        logAct(cid, `Payroll — paid ${r.paid}${r.failed ? `, ${r.failed} failed` : ''}`, r.failed ? 'neg' : 'pos');
+        logAct(cid, `Payroll — paid ${r.paid}${r.pending ? `, ${r.pending} in flight` : ''}${r.failed ? `, ${r.failed} failed` : ''}`, r.failed ? 'neg' : 'pos');
         return send(res, 200, { result: r, wallet: await balances(cid, country) });
       }
       if (p === '/api/remit/send') {
-        const r = await remit.send({ senderCustomerId: cid, destCountry: String(b.destCountry || 'UG'), destNational: String(b.destNational || ''), amountUsdt: String(b.amountUsdt) });
+        const r = await remit.send({ senderCustomerId: cid, destCountry: String(b.destCountry || 'UG'), destNational: String(b.destNational || ''), amountUsdt: String(b.amountUsdt), sanctionsHit: !!b.sanctionsHit });
         logAct(cid, `Sent ${b.amountUsdt} USDT → +${r.claim.destMsisdn} · reserved (code ${r.claim.code})`, 'neg');
         return send(res, 200, { claim: r.claim, estimate: r.estimate, wallet: await balances(cid, country) });
       }
@@ -517,6 +540,7 @@ const server = http.createServer(async (req, res) => {
         const r = await remit.sendIntl({
           senderCustomerId: cid, destMsisdn: String(b.destMsisdn || ''), amountUsdt: String(b.amountUsdt),
           recipientType: b.recipientType === 'business' ? 'business' : 'person', destLabel: b.destLabel ? String(b.destLabel) : undefined,
+          sanctionsHit: !!b.sanctionsHit,
         });
         logAct(cid, `Sent ${b.amountUsdt} USDT abroad → +${r.claim.destMsisdn} (${r.claim.recipientType}) · reserved (code ${r.claim.code})`, 'neg');
         return send(res, 200, { claim: r.claim, estimate: r.estimate, wallet: await balances(cid, country) });
@@ -571,7 +595,7 @@ async function start() {
   }
 
   rail = new RailService(ledger, registry, providers, fx, pending);
-  payroll = new PayrollService(ledger, registry, providers);
+  payroll = new PayrollService(ledger, registry, providers, pending);
 
   // Ops-console overrides (durable market edits) + auth.
   const overrideStore: ProfileOverrideStore = url ? new PgOverrideStore(url) : new InMemoryOverrideStore();
@@ -593,8 +617,28 @@ async function start() {
     claims = new ClaimStore();
   }
   remit = new RemittanceService(ledger, registry, fx, claims);
-  billers = new BillerService(ledger, registry);
-  requests = new RequestService(ledger, registry);
+
+  // Bill pay / MoMoPay with durable admin-edited billers + receipts.
+  if (url) {
+    const bsink = new PgBillerSink(url);
+    await bsink.init();
+    billers = new BillerService(ledger, registry, bsink);
+    const n = await billers.hydrate();
+    if (n) console.log(`momo-rail: hydrated ${n} admin-edited biller(s)`);
+  } else {
+    billers = new BillerService(ledger, registry);
+  }
+
+  // Payment requests (P2P) with durable open requests.
+  if (url) {
+    const rsink = new PgRequestSink(url);
+    await rsink.init();
+    requests = new RequestService(ledger, registry, rsink);
+    const n = await requests.hydrate();
+    if (n) console.log(`momo-rail: hydrated ${n} open payment request(s)`);
+  } else {
+    requests = new RequestService(ledger, registry);
+  }
 
   for (const pr of registry.list()) {
     if (!rates[pr.localCurrency]) rates[pr.localCurrency] = await fx.getLocalPerUsdt(pr.localCurrency);

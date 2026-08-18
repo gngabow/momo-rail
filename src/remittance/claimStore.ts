@@ -5,7 +5,7 @@
  * write-through durable sink (Postgres) hydrated on boot, so a restart doesn't
  * lose the reservation and strand escrow funds.
  */
-export type ClaimStatus = 'reserved' | 'claimed' | 'cancelled';
+export type ClaimStatus = 'reserved' | 'claimed' | 'cancelled' | 'refunded';
 
 export interface RemittanceClaim {
   id: string;
@@ -23,6 +23,11 @@ export interface RemittanceClaim {
   // in USDT (no local conversion). recipientType labels C2C vs C2B.
   recipientType?: 'person' | 'business';
   destLabel?: string;
+  // Compliance annotation set at reserve time (in-memory; ops-visible). 'review'
+  // flags a large cross-border value for a human look; delivery still proceeds.
+  screen?: 'pass' | 'review';
+  screenReason?: string;
+  refundedAt?: number;
 }
 
 export interface ClaimSink {

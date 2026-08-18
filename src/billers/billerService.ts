@@ -20,6 +20,14 @@ export interface BillPayReceipt {
 
 export class BillerError extends Error {}
 
+export interface BillerSink {
+  persistBiller(b: Biller): Promise<void>;               // upsert an edited/custom biller
+  persistReceipt(r: BillPayReceipt): Promise<void>;      // append a bill-pay receipt (audit)
+  loadBillers(): Promise<Biller[]>;                      // persisted (admin-edited) billers
+  loadReceipts(limit: number): Promise<BillPayReceipt[]>; // recent receipts, newest first
+  init?(): Promise<void>;
+}
+
 const CATEGORIES: [string, string][] = [
   ['ELEC', 'Electricity'],
   ['WATER', 'Water & Sewerage'],
@@ -32,13 +40,31 @@ export class BillerService {
   private billers = new Map<string, Biller>();
   private receipts: BillPayReceipt[] = [];
 
-  constructor(private readonly ledger: LedgerStore, private readonly registry: CountryRegistry) {
+  constructor(
+    private readonly ledger: LedgerStore,
+    private readonly registry: CountryRegistry,
+    private readonly sink?: BillerSink,
+  ) {
     for (const p of registry.list()) {
       for (const [suf, name] of CATEGORIES) {
         const code = `${p.code}-${suf}`;
         this.billers.set(code, { code, name: `${name} · ${p.displayName}`, country: p.code, currency: p.localCurrency, category: name, enabled: true });
       }
     }
+  }
+
+  /** Load admin-edited billers and recent receipts from the durable sink (call once on boot).
+   *  Persisted billers overwrite the deterministic seed set by code. */
+  async hydrate(): Promise<number> {
+    if (!this.sink) return 0;
+    const saved = await this.sink.loadBillers();
+    for (const b of saved) this.billers.set(b.code.toUpperCase(), b);
+    this.receipts = await this.sink.loadReceipts(100);
+    return saved.length;
+  }
+
+  private flushBiller(b: Biller): void {
+    if (this.sink) this.sink.persistBiller({ ...b }).catch((e) => console.error('[biller] persist failed:', e && e.message ? e.message : e));
   }
 
   /** Customer-facing list: only enabled billers, optionally scoped to a market. */
@@ -68,6 +94,7 @@ export class BillerService {
       enabled: p.enabled ?? existing?.enabled ?? true,
     };
     this.billers.set(code, biller);
+    this.flushBiller(biller);
     return biller;
   }
 
@@ -76,6 +103,7 @@ export class BillerService {
     const b = this.get(code);
     if (!b) throw new BillerError(`Unknown biller "${code}"`);
     b.enabled = enabled;
+    this.flushBiller(b);
     return b;
   }
 
@@ -102,6 +130,7 @@ export class BillerService {
     };
     this.receipts.unshift(receipt);
     this.receipts = this.receipts.slice(0, 100);
+    if (this.sink) this.sink.persistReceipt({ ...receipt }).catch((e) => console.error('[biller] receipt persist failed:', e && e.message ? e.message : e));
     return receipt;
   }
 }

@@ -486,13 +486,18 @@ async function renderAdmin(){
   const inflight=`<div class="panel"><h3>In-flight</h3>
     <div class="small muted" style="margin-bottom:4px">Pending MoMo settlements: ${inf.pending.length} · Reserved remittances: ${inf.claims.length}</div>
     ${inf.pending.map(x=>`<div class="row"><span>${x.kind} · ${fmt(x.amountLocal,x.currency)} ${x.currency} <span class="pill res">${x.status}</span></span><span class="small muted"><span class="fi fi-${String(x.countryCode||'').toLowerCase()}"></span> ${x.countryCode}</span></div>`).join('')}
-    ${inf.claims.map(c=>`<div class="row"><span>remit → +${c.destMsisdn} · ${fmtU(c.amountUsdt)} USDT <span class="pill res">reserved</span></span><span class="small muted">code ${c.code}</span></div>`).join('')}
+    ${inf.claims.map(c=>`<div class="row"><span>remit → +${c.destMsisdn} · ${fmtU(c.amountUsdt)} USDT <span class="pill res">reserved</span>${c.screen==='review'?` <span class="pill" style="background:#7a5b00;color:#ffd970" title="${c.screenReason||'Flagged for review'}">⚠ review</span>`:''}</span><span class="small muted">code ${c.code} <button class="lnk rfd" data-refund="${c.code}" style="margin-left:8px">Refund</button></span></div>`).join('')}
     ${(!inf.pending.length&&!inf.claims.length)?'<div class="muted small">Nothing in flight.</div>':''}</div>`;
   const activity=`<div class="panel"><h3>System activity</h3>
     ${act.length?act.map(a=>`<div class="row"><span>${a.type}</span><span class="small muted">${a.amount?fmt(a.amount,a.currency)+' '+a.currency+' · ':''}${new Date(a.at).toLocaleTimeString()}</span></div>`).join(''):'<div class="muted small">No activity yet.</div>'}</div>`;
 
   view.innerHTML=tabbar+overview+treasury+inflight+activity;
   wireTabs();
+  view.querySelectorAll('[data-refund]').forEach(btn=>btn.onclick=async()=>{
+    btn.disabled=true; const prev=btn.textContent; btn.textContent='Refunding…';
+    try{ await POST('/api/admin/remit/refund',{code:btn.dataset.refund},{Authorization:'Bearer '+ADMIN}); renderAdmin(); }
+    catch(e){ btn.textContent='Failed'; console.error('refund failed:',e&&e.message?e.message:e); setTimeout(()=>{btn.textContent=prev;btn.disabled=false;},1500); }
+  });
 }
 
 const root=document.getElementById('modalRoot');
@@ -583,7 +588,7 @@ function openIntlModal(a){
       const usdtNeeded=(total/(+m.rate)/(1-0.015))*1.03;
       await POST('/api/convert',{country:pc.value,direction:'usdt_to_local',amount:usdtNeeded.toFixed(6)});
       const r=await POST('/api/payroll',{country:pc.value,payees});
-      okmsg(`Converted from USDT and paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed`:''}.`);setTimeout(close,1600);});}
+      okmsg(`Converted from USDT and paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.pending?`, ${r.result.pending} in flight`:''}${r.result.failed?`, ${r.result.failed} failed`:''}.`);setTimeout(close,1600);});}
 }
 function openModal(a){
   const w=state.wallet;
@@ -682,7 +687,7 @@ function openModal(a){
     act('go',async()=>{const payees=[...rows.querySelectorAll('.payrow')].map(r=>{const i=r.querySelectorAll('input');return{ph:i[0].value.trim(),amt:+i[1].value};}).filter(x=>x.amt>0);
       if(!payees.length)throw new Error('Add at least one worker with an amount.');
       const r=await POST('/api/payroll',{customer:CID,country:state.cc,payees});
-      okmsg(`Paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.failed?`, ${r.result.failed} failed (insufficient balance)`:''}.`);setTimeout(close,1200);});}
+      okmsg(`Paid ${r.result.paid} worker${r.result.paid===1?'':'s'}${r.result.pending?`, ${r.result.pending} in flight`:''}${r.result.failed?`, ${r.result.failed} failed`:''}.`);setTimeout(close,1200);});}
 }
 document.getElementById('country').onchange=e=>{
   const chosen=e.target.value;

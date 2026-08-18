@@ -30,12 +30,36 @@ export interface PaymentRequest {
   payerCustomerId?: string;
 }
 
+export interface RequestSink {
+  persist(r: PaymentRequest): Promise<void>;   // upsert by id
+  loadOpen(): Promise<PaymentRequest[]>;         // still-open requests, for boot hydration
+  init?(): Promise<void>;
+}
+
 export class RequestError extends Error {}
 
 export class RequestService {
   private byId = new Map<string, PaymentRequest>();
 
-  constructor(private readonly ledger: LedgerStore, private readonly registry: CountryRegistry) {}
+  constructor(
+    private readonly ledger: LedgerStore,
+    private readonly registry: CountryRegistry,
+    private readonly sink?: RequestSink,
+  ) {}
+
+  /** Load still-open requests from the durable sink (call once on boot). */
+  async hydrate(): Promise<number> {
+    if (!this.sink) return 0;
+    const open = await this.sink.loadOpen();
+    for (const r of open) this.byId.set(r.id, r);
+    return open.length;
+  }
+
+  private save(r: PaymentRequest): PaymentRequest {
+    this.byId.set(r.id, r);
+    if (this.sink) this.sink.persist({ ...r }).catch((e) => console.error('[request] persist failed:', e && e.message ? e.message : e));
+    return r;
+  }
 
   private shortCode(): string { return crypto.randomBytes(4).toString('hex').toUpperCase(); }
 
@@ -57,7 +81,7 @@ export class RequestService {
       id: newId(), code: this.shortCode(), requesterCustomerId: p.requesterCustomerId,
       currency, country, amount: p.amount, note: String(p.note || ''), status: 'open', createdAt: Date.now(),
     };
-    this.byId.set(req.id, req);
+    this.save(req);
     return req;
   }
 
@@ -90,7 +114,7 @@ export class RequestService {
     });
 
     req.status = 'paid'; req.paidAt = Date.now(); req.payerCustomerId = p.payerCustomerId;
-    this.byId.set(req.id, req);
+    this.save(req);
     return { request: req, amount: req.amount, currency: req.currency };
   }
 }

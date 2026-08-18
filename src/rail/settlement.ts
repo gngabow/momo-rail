@@ -7,7 +7,7 @@
  * In-memory for now (mirrors the rest of the scaffold); Phase 2 moves it to the
  * same Postgres store as the ledger so a restart doesn't lose in-flight items.
  */
-export type PendingKind = 'deposit' | 'withdraw';
+export type PendingKind = 'deposit' | 'withdraw' | 'payroll';
 export type PendingStatus = 'pending' | 'success' | 'failed';
 
 export interface PendingSettlement {

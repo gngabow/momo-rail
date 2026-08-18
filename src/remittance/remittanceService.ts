@@ -12,6 +12,7 @@ import { ClaimStore, RemittanceClaim } from './claimStore';
 const REMIT_ESCROW = 'sys-USDT-remit-escrow';
 const USDT_FEEREV = 'sys-USDT-feerev';
 const OUTBOUND_INTL_FEE_RATE_DEFAULT = 0.01; // used when the sender isn't an Opco customer
+const REMIT_REVIEW_USDT = Number(process.env.REMIT_REVIEW_USDT || 1000); // large-value review flag (USDT)
 
 export class RemittanceError extends Error {}
 
@@ -36,6 +37,15 @@ export class RemittanceService {
   ) {}
 
   private shortCode(): string { return crypto.randomBytes(4).toString('hex').toUpperCase(); }
+
+  /** Cross-border screening: block on a sanctions match, flag large values for review.
+   *  Runs before any funds are reserved. Real sanctions/AML vendors sit behind the
+   *  same seam as the mobile-money provider. */
+  private screenCrossBorder(amountUsdt: string, sanctionsHit?: boolean): { decision: 'pass' | 'review' | 'block'; reason?: string } {
+    if (sanctionsHit) return { decision: 'block', reason: 'Sanctions screening match' };
+    if (Number(amountUsdt) >= REMIT_REVIEW_USDT) return { decision: 'review', reason: `Above cross-border review threshold (${REMIT_REVIEW_USDT} USDT)` };
+    return { decision: 'pass' };
+  }
 
   /** What the recipient would receive for a given USDT amount in a destination market. */
   async quoteDelivery(destCountry: string, amountUsdt: string): Promise<DeliveryQuote> {
@@ -83,7 +93,9 @@ export class RemittanceService {
    * Covers C2C (a person's USDT account) and C2B (a business's USDT wallet) — the
    * money movement is identical; recipientType only labels it. Gated on the sender
    * market's `outboundRemittance` feature when the sender is an Opco customer. */
-  async sendIntl(p: { senderCustomerId: string; destMsisdn: string; amountUsdt: string; recipientType?: 'person' | 'business'; destLabel?: string }): Promise<{ claim: RemittanceClaim; estimate: DeliveryQuote }> {
+  async sendIntl(p: { senderCustomerId: string; destMsisdn: string; amountUsdt: string; recipientType?: 'person' | 'business'; destLabel?: string; sanctionsHit?: boolean }): Promise<{ claim: RemittanceClaim; estimate: DeliveryQuote }> {
+    const screen = this.screenCrossBorder(p.amountUsdt, p.sanctionsHit);
+    if (screen.decision === 'block') throw new RemittanceError(`Transfer blocked: ${screen.reason}`);
     const sm = /^cust:([A-Z]{2}):/.exec(p.senderCustomerId);
     if (sm) { try { const prof = this.registry.get(sm[1]); if (!prof.features.outboundRemittance) throw new RemittanceError(`Outbound remittance is not enabled for ${prof.code}`); } catch (e) { if (e instanceof RemittanceError) throw e; } }
     const msisdn = this.normaliseMsisdn(p.destMsisdn);
@@ -106,14 +118,17 @@ export class RemittanceService {
       destCountry: 'INTL', destMsisdn: msisdn, amountUsdt: p.amountUsdt,
       status: 'reserved', createdAt: Date.now(),
       recipientType: p.recipientType || 'person', destLabel: p.destLabel,
+      screen: screen.decision === 'review' ? 'review' : 'pass', screenReason: screen.reason,
     });
     return { claim, estimate: this.quoteOutboundUsdt(p.amountUsdt, this.outboundFeeRate(p.senderCustomerId)) };
   }
 
   /** Reserve funds for a recipient phone number. */
-  async send(p: { senderCustomerId: string; destCountry: string; destNational: string; amountUsdt: string }): Promise<{ claim: RemittanceClaim; estimate: DeliveryQuote }> {
+  async send(p: { senderCustomerId: string; destCountry: string; destNational: string; amountUsdt: string; sanctionsHit?: boolean }): Promise<{ claim: RemittanceClaim; estimate: DeliveryQuote }> {
     const dest = this.registry.require(p.destCountry);
     if (!dest.features.inboundRemittance) throw new RemittanceError(`Inbound remittance is not enabled for ${p.destCountry}`);
+    const screen = this.screenCrossBorder(p.amountUsdt, p.sanctionsHit);
+    if (screen.decision === 'block') throw new RemittanceError(`Transfer blocked: ${screen.reason}`);
     const senderUsdt = await provisionWallet(this.ledger, p.senderCustomerId, 'USDT', null);
     await this.ledger.assertSufficientBalance(senderUsdt.id, p.amountUsdt);
     const destMsisdn = toMsisdn(dest, p.destNational);
@@ -132,6 +147,7 @@ export class RemittanceService {
       id, code: this.shortCode(), senderCustomerId: p.senderCustomerId,
       destCountry: dest.code, destMsisdn, amountUsdt: p.amountUsdt,
       status: 'reserved', createdAt: Date.now(),
+      screen: screen.decision === 'review' ? 'review' : 'pass', screenReason: screen.reason,
     });
     return { claim, estimate: await this.quoteDelivery(dest.code, p.amountUsdt) };
   }
@@ -184,6 +200,14 @@ export class RemittanceService {
     const c = this.claims.get(idOrCode) || this.claims.getByCode(idOrCode);
     if (!c) throw new RemittanceError('No such claim');
     if (c.status !== 'reserved') throw new RemittanceError(`Claim already ${c.status}`);
+    // Bind explicit claims to the verified recipient number: the session subject
+    // must be the canonical id for the number this transfer was reserved for.
+    if (recipientCustomerId) {
+      const expected = customerIdFor(c.destCountry, c.destMsisdn);
+      if (recipientCustomerId !== expected) {
+        throw new RemittanceError('This transfer was sent to a different number. Sign in with the number it was sent to and it will be delivered automatically.');
+      }
+    }
     return this.deliver(c, recipientCustomerId);
   }
 
@@ -193,6 +217,30 @@ export class RemittanceService {
     const out = [];
     for (const c of list) out.push(await this.deliver(c, recipientCustomerId));
     return out;
+  }
+
+  /** Refund a still-reserved claim to the sender (ops/TTL action): reverses escrow -> sender. */
+  async refund(idOrCode: string): Promise<RemittanceClaim> {
+    const c = this.claims.get(idOrCode) || this.claims.getByCode(idOrCode);
+    if (!c) throw new RemittanceError('No such claim');
+    if (c.status !== 'reserved') throw new RemittanceError(`Claim already ${c.status}`);
+    const senderUsdt = await provisionWallet(this.ledger, c.senderCustomerId, 'USDT', null);
+    await this.ledger.postEntry({
+      entryType: 'remit_refund',
+      idempotencyKey: `remit-ref-${c.id}`,
+      lines: [
+        { accountId: REMIT_ESCROW, amount: `-${c.amountUsdt}` },
+        { accountId: senderUsdt.id, amount: c.amountUsdt },
+      ],
+    });
+    c.status = 'refunded'; c.refundedAt = Date.now();
+    this.claims.update(c);
+    return c;
+  }
+
+  /** Reserved claims at least ttlMs old — candidates for auto-refund. */
+  staleReserved(ttlMs: number, now: number): RemittanceClaim[] {
+    return this.reservedClaims().filter((c) => now - c.createdAt >= ttlMs);
   }
 
   outboxFor(customerId: string): RemittanceClaim[] { return this.claims.sentBy(customerId); }
